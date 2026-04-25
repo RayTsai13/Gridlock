@@ -10,6 +10,15 @@ from pathlib import Path
 import geopandas as gpd
 import pandas as pd
 
+from src.common.artifacts import (
+    DEFAULT_PROCESSED_DIR,
+    DEFAULT_RAW_DIR,
+    DELHI_POPULATION_VECTOR_SUMMARY_JSON,
+    DELHI_STATION_COORDINATES_CSV,
+    DELHI_STATION_DENSITY_CSV,
+    DELHI_WARD_POPULATION_CSV,
+    DELHI_WARDS_GEOJSON,
+)
 from src.common.geo_utils import compute_population_density_vectors
 from src.common.io_utils import cached_download, ensure_dir, write_csv
 from src.common.station_utils import clean_station, station_id
@@ -32,8 +41,8 @@ DEFAULT_WARD_POP_URL = (
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Create Delhi residential-density station vectors.")
-    parser.add_argument("--raw-dir", default="data/raw", help="Raw data cache directory.")
-    parser.add_argument("--out-dir", default="data/processed", help="Output directory.")
+    parser.add_argument("--raw-dir", default=str(DEFAULT_RAW_DIR), help="Raw data cache directory.")
+    parser.add_argument("--out-dir", default=str(DEFAULT_PROCESSED_DIR), help="Output directory.")
     parser.add_argument("--radius-m", type=int, default=1000, help="Station population radius.")
     parser.add_argument("--stations-url", default=DEFAULT_STATION_URL)
     parser.add_argument("--ward-geojson-url", default=DEFAULT_WARD_GEOJSON_URL)
@@ -42,7 +51,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def load_station_coordinates(raw_dir: Path, url: str) -> pd.DataFrame:
-    path = cached_download(url, raw_dir / "delhi_metro_station_coordinates.csv")
+    path = cached_download(url, raw_dir / DELHI_STATION_COORDINATES_CSV)
     stations = pd.read_csv(path)
     stations.columns = [column.strip() for column in stations.columns]
     stations = stations.rename(
@@ -65,7 +74,7 @@ def pick_column(columns: list[str], candidates: list[str]) -> str:
 
 
 def load_ward_population(raw_dir: Path, url: str) -> pd.DataFrame:
-    path = cached_download(url, raw_dir / "delhi_ward_population.csv")
+    path = cached_download(url, raw_dir / DELHI_WARD_POPULATION_CSV)
     population = pd.read_csv(path)
     ward_col = pick_column(list(population.columns), ["Ward", "Ward_Name", "ward"])
     pop_col = pick_column(list(population.columns), ["Population", "population"])
@@ -84,7 +93,7 @@ def load_ward_population(raw_dir: Path, url: str) -> pd.DataFrame:
 
 
 def load_ward_geometry(raw_dir: Path, url: str) -> gpd.GeoDataFrame:
-    path = cached_download(url, raw_dir / "delhi_wards.geojson")
+    path = cached_download(url, raw_dir / DELHI_WARDS_GEOJSON)
     wards = gpd.read_file(path)
     if "Ward_Name" not in wards.columns:
         raise ValueError("Delhi ward GeoJSON is missing Ward_Name")
@@ -122,7 +131,7 @@ def main() -> None:
         radius_m=args.radius_m,
     )
     vectors = stations.merge(density, on="station_id", how="left")
-    output_path = write_csv(vectors, out_dir / "delhi_station_density.csv")
+    output_path = write_csv(vectors, out_dir / DELHI_STATION_DENSITY_CSV)
 
     summary = {
         "stations": int(len(stations)),
@@ -132,7 +141,7 @@ def main() -> None:
         "radius_m": args.radius_m,
         "output": str(output_path),
     }
-    (out_dir / "delhi_population_vector_summary.json").write_text(json.dumps(summary, indent=2))
+    (out_dir / DELHI_POPULATION_VECTOR_SUMMARY_JSON).write_text(json.dumps(summary, indent=2))
     print(json.dumps(summary, indent=2))
 
 

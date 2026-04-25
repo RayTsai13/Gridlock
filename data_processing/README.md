@@ -12,7 +12,7 @@ Source code lives under `src/`:
 - `src/pipelines/seattle/`: Seattle station-vector and heatmap feature builders.
 - `src/models/`: model training entry points.
 
-Run commands from the `data_processing/` directory with `python -m ...`. The modules read from `data/raw` or `data/processed` by default and write explicit CSV/GeoJSON/JSON artifacts.
+Run commands from the `data_processing/` directory with `python -m ...`. The modules read from `curr_data/raw` and write to `curr_data/processed` by default.
 
 See `ARCHITECTURE.md` for the current pipeline architecture and the future Delhi-trained dispersion model plan.
 
@@ -27,31 +27,73 @@ python3 -m venv .venv
 
 ---
 
+## 0. Cache raw data
+
+Keep public raw downloads in one place before running feature builders:
+
+```bash
+.venv/bin/python scripts/download_raw_data.py
+```
+
+By default this populates `curr_data/raw/`, downloads/extracts Puget Sound GTFS into `gtfs/`, and reuses any non-empty cached files. The Delhi trip CSV is downloaded from the Kaggle dataset `nikhilkumar766/delhi-metro-dataset`, extracted, renamed to `curr_data/raw/delhi_metro_updated.csv`, and validated for the columns required by `src.pipelines.delhi.transform_metro`.
+
+If Kaggle requires authentication in the container, provide credentials through environment variables:
+
+```bash
+export KAGGLE_USERNAME=...
+export KAGGLE_KEY=...
+.venv/bin/python scripts/download_raw_data.py
+```
+
+Useful options:
+
+```bash
+.venv/bin/python scripts/download_raw_data.py --raw-dir curr_data/raw --gtfs-dir gtfs
+.venv/bin/python scripts/download_raw_data.py --kaggle-delhi-dataset nikhilkumar766/delhi-metro-dataset
+.venv/bin/python scripts/download_raw_data.py --delhi-trips-url https://example.com/delhi_metro_updated.csv
+.venv/bin/python scripts/download_raw_data.py --include-lehd
+.venv/bin/python scripts/download_raw_data.py --skip-gtfs
+```
+
+`scripts/download_raw_data.sh` is a thin compatibility wrapper around the Python script.
+
+---
+
 ## 1. Seattle grid heatmap dataset
 
 ### Outputs
 
-- `data/processed/seattle_heatmap_features.csv`: rows by grid cell, hour, and day of week.
-- `data/processed/seattle_heatmap_grid.geojson`: grid polygons with `congestion_score` for MapLibre or `react-map-gl`.
-- `data/processed/model_metrics.json`: written by `src.models.train_heatmap_model`.
-- `data/processed/seattle_heatmap_predictions.csv`: optional model predictions.
+- `curr_data/processed/seattle_heatmap_features.csv`: rows by grid cell, hour, and day of week.
+- `curr_data/processed/seattle_heatmap_grid.geojson`: grid polygons with `congestion_score` for MapLibre or `react-map-gl`.
+- `curr_data/processed/seattle_heatmap_model_metrics.json`: written by `src.models.train_heatmap_model`.
+- `curr_data/processed/seattle_heatmap_predictions.csv`: optional model predictions.
 
 ### Build
 
 ```bash
-.venv/bin/python -m src.pipelines.seattle.build_heatmap_dataset --gtfs-dir gtfs --fremont-limit 5000
+.venv/bin/python -m src.pipelines.seattle.build_heatmap_dataset \
+  --gtfs-dir gtfs \
+  --raw-dir curr_data/raw \
+  --out-dir curr_data/processed \
+  --fremont-limit 5000
 ```
 
 Uses local GTFS in `gtfs/`, Seattle Open Data Fremont Bridge counts, and Seattle transit accessibility data. Optional LEHD (larger download):
 
 ```bash
-.venv/bin/python -m src.pipelines.seattle.build_heatmap_dataset --gtfs-dir gtfs --include-lehd --lehd-year 2022
+.venv/bin/python -m src.pipelines.seattle.build_heatmap_dataset \
+  --gtfs-dir gtfs \
+  --raw-dir curr_data/raw \
+  --out-dir curr_data/processed \
+  --include-lehd \
+  --lehd-year 2022
 ```
 
 ### Train (separate step)
 
 ```bash
-.venv/bin/python -m src.models.train_heatmap_model --features-csv data/processed/seattle_heatmap_features.csv
+.venv/bin/python -m src.models.train_heatmap_model \
+  --features-csv curr_data/processed/seattle_heatmap_features.csv
 ```
 
 ### Optional manual counts
@@ -59,7 +101,11 @@ Uses local GTFS in `gtfs/`, Seattle Open Data Fremont Bridge counts, and Seattle
 CSV with `lat`, `lon`, `datetime`, `count`:
 
 ```bash
-.venv/bin/python -m src.pipelines.seattle.build_heatmap_dataset --optional-counts-csv path/to/counts.csv
+.venv/bin/python -m src.pipelines.seattle.build_heatmap_dataset \
+  --gtfs-dir gtfs \
+  --raw-dir curr_data/raw \
+  --out-dir curr_data/processed \
+  --optional-counts-csv path/to/counts.csv
 ```
 
 ---
@@ -74,6 +120,7 @@ Run in this order so trip features pick up density columns.
 
 | Step | Module | Purpose |
 |------|--------|---------|
+| 0 | `scripts/download_raw_data.py` | Cache public raw inputs under `curr_data/raw/` and validate the Delhi trip file |
 | 1 | `src.pipelines.delhi.build_population_vectors` | Delhi station coordinates + ward population + ward polygons → per-station density |
 | 2 | `src.pipelines.delhi.transform_metro` | Trip CSV → `delhi_station_vectors.csv` + `delhi_trip_features.csv` (merges density from step 1 and keeps passengers as the target) |
 | 3 | `src.pipelines.delhi.prepare_train_test` | Split `delhi_trip_features.csv` into train/test |
@@ -82,42 +129,50 @@ Run in this order so trip features pick up density columns.
 ### Commands
 
 ```bash
-# Delhi: density only (caches downloads under data/raw/)
-.venv/bin/python -m src.pipelines.delhi.build_population_vectors --radius-m 1000
+# Delhi: density only (uses the cached raw files)
+.venv/bin/python -m src.pipelines.delhi.build_population_vectors \
+  --raw-dir curr_data/raw \
+  --out-dir curr_data/processed \
+  --radius-m 1000
 
-# Delhi: full trip features (expects data/processed/delhi_station_density.csv from step 1)
+# Delhi: full trip features (expects curr_data/processed/delhi_station_density.csv from step 1)
 .venv/bin/python -m src.pipelines.delhi.transform_metro \
-  --input data/raw/delhi_metro_updated.csv \
-  --out-dir data/processed \
-  --density-vectors data/processed/delhi_station_density.csv
+  --input curr_data/raw/delhi_metro_updated.csv \
+  --out-dir curr_data/processed \
+  --density-vectors curr_data/processed/delhi_station_density.csv
 
 # Delhi: train / test split
 .venv/bin/python -m src.pipelines.delhi.prepare_train_test \
-  --features-csv data/processed/delhi_trip_features.csv \
-  --out-dir data/processed
+  --features-csv curr_data/processed/delhi_trip_features.csv \
+  --out-dir curr_data/processed
 
 # Seattle: station vectors with density
-.venv/bin/python -m src.pipelines.seattle.build_station_vectors --gtfs-dir gtfs --radius-m 1000
+.venv/bin/python -m src.pipelines.seattle.build_station_vectors \
+  --gtfs-dir gtfs \
+  --raw-dir curr_data/raw \
+  --out-dir curr_data/processed \
+  --radius-m 1000
 ```
 
 ### Cross-city outputs
 
 | File | Description |
 |------|-------------|
-| `data/processed/delhi_station_density.csv` | All coordinate-matched Delhi stations with population/density fields |
-| `data/processed/delhi_station_vectors.csv` | Stations appearing in trip data: proxy activity + connectivity + density where matched |
-| `data/processed/delhi_trip_features.csv` | One row per trip with origin/destination vector columns and `target_passengers` |
-| `data/processed/delhi_train_features.csv` / `delhi_test_features.csv` | Stratified split (rows with non-null targets) |
-| `data/processed/seattle_station_vectors.csv` | Seattle-area GTFS stops in the Seattle bbox with density and proxy `activity_score` |
+| `curr_data/processed/delhi_station_density.csv` | All coordinate-matched Delhi stations with population/density fields |
+| `curr_data/processed/delhi_station_vectors.csv` | Stations appearing in trip data: proxy activity + connectivity + density where matched |
+| `curr_data/processed/delhi_trip_features.csv` | One row per trip with origin/destination vector columns and `target_passengers` |
+| `curr_data/processed/delhi_train_features.csv` / `delhi_test_features.csv` | Stratified split (rows with non-null targets) |
+| `curr_data/processed/seattle_station_vectors.csv` | Seattle-area GTFS stops in the Seattle bbox with density and proxy `activity_score` |
 
 Summary JSON files: `delhi_population_vector_summary.json`, `seattle_station_vector_summary.json` (where generated).
 
 ### Data sources (cross-city)
 
-- **Delhi trips** (place in `data/raw/`): `data/raw/delhi_metro_updated.csv`
+- **Raw cache script**: `scripts/download_raw_data.py`
+- **Delhi trips**: Kaggle dataset `nikhilkumar766/delhi-metro-dataset`, cached as `curr_data/raw/delhi_metro_updated.csv`
 - **Delhi station lat/lon**: public coordinate CSV (default URL in `src.pipelines.delhi.build_population_vectors`)
 - **Delhi population**: OpenCity ward population CSV; **geometry**: DataMeet `Delhi_Wards.geojson` (ward numbers joined to population rows)
-- **Seattle**: local `gtfs/`; **ACS** `B01003_001E` (tract + Seattle place); **Census TIGER** cartographic boundary tract and place shapefiles (cached in `data/raw/`)
+- **Seattle**: local `gtfs/`; **ACS** `B01003_001E` (tract + Seattle place); **Census TIGER** cartographic boundary tract and place shapefiles (cached in `curr_data/raw/`)
 
 `activity_score` is computed from the same proxy recipe in both station-vector builders: 70% `residential_density_ratio` plus 30% within-city connectivity percentile, then min-max normalized. Delhi connectivity currently comes from distinct origin/destination links in the trip file; Seattle connectivity comes from GTFS departures plus stop count. Delhi `Passengers` remains only as `target_passengers` in the trip feature table.
 
@@ -127,5 +182,6 @@ If a Delhi trip station name has no match in the coordinate file, `lat`/`lon` an
 
 ## Data layout
 
-- `data/raw/`: cached downloads (GTFS zips, Census shapefiles, ward CSV, etc.)
-- `data/processed/`: all generated CSV/GeoJSON/JSON for modeling and maps
+- `curr_data/raw/`: cached downloads (GTFS zips, Census shapefiles, ward CSV, etc.)
+- `curr_data/processed/`: generated CSV/GeoJSON/JSON artifacts for the current workspace
+- `gtfs/`: extracted Puget Sound GTFS text files

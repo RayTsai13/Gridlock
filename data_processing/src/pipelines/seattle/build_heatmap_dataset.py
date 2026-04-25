@@ -1,9 +1,7 @@
 #!/usr/bin/env python3
 """Build a Seattle foot-traffic heatmap feature dataset.
 
-The pipeline produces two artifacts:
-  1. seattle/data/processed/seattle_heatmap_features.csv for modeling/training.
-  2. seattle/data/processed/seattle_heatmap_grid.geojson for MapLibre/react-map-gl.
+The pipeline writes Seattle heatmap feature and grid artifacts to the processed directory.
 
 The output is a proxy congestion surface, not measured pedestrian volume.
 Observed public foot-traffic data is sparse, so the score blends transit
@@ -24,6 +22,18 @@ from typing import Iterable
 import pandas as pd
 import requests
 from shapely.geometry import shape
+
+from src.common.artifacts import (
+    DEFAULT_GTFS_DIR,
+    DEFAULT_PROCESSED_DIR,
+    DEFAULT_RAW_DIR,
+    FREMONT_BRIDGE_COUNTS_CSV,
+    PUGET_SOUND_GTFS_ZIP,
+    SEATTLE_HEATMAP_FEATURES_CSV,
+    SEATTLE_HEATMAP_GRID_GEOJSON,
+    TRANSIT_ACCESSIBILITY_CSV,
+    US_COUNTIES_GEOJSON,
+)
 
 
 SEATTLE_BBOX = (-122.4597, 47.4810, -122.2244, 47.7340)
@@ -53,14 +63,14 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Create Seattle heatmap CSV and GeoJSON feature outputs."
     )
-    parser.add_argument("--gtfs-dir", default="gtfs", help="Directory containing GTFS txt files.")
+    parser.add_argument("--gtfs-dir", default=str(DEFAULT_GTFS_DIR), help="Directory containing GTFS txt files.")
     parser.add_argument(
         "--download-gtfs",
         action="store_true",
         help="Download Sound Transit consolidated GTFS if --gtfs-dir is missing.",
     )
-    parser.add_argument("--raw-dir", default="../data/raw", help="Raw data cache directory.")
-    parser.add_argument("--out-dir", default="../data/processed", help="Processed output directory.")
+    parser.add_argument("--raw-dir", default=str(DEFAULT_RAW_DIR), help="Raw data cache directory.")
+    parser.add_argument("--out-dir", default=str(DEFAULT_PROCESSED_DIR), help="Processed output directory.")
     parser.add_argument("--cell-size-m", type=int, default=500, help="Grid cell size in meters.")
     parser.add_argument(
         "--fremont-limit",
@@ -104,7 +114,7 @@ def maybe_download_gtfs(gtfs_dir: Path, raw_dir: Path, should_download: bool) ->
             f"Missing GTFS files in {gtfs_dir}. Pass --download-gtfs or --gtfs-dir."
         )
 
-    zip_path = download_file(GTFS_URL, raw_dir / "gtfs_puget_sound_consolidated.zip")
+    zip_path = download_file(GTFS_URL, raw_dir / PUGET_SOUND_GTFS_ZIP)
     gtfs_dir.mkdir(parents=True, exist_ok=True)
     with zipfile.ZipFile(zip_path) as archive:
         archive.extractall(gtfs_dir)
@@ -209,7 +219,7 @@ def load_fremont_counts(raw_dir: Path, limit: int, spec: GridSpec) -> pd.DataFra
         "$order": "date DESC",
         "$select": "date,fremont_bridge,fremont_bridge_nb,fremont_bridge_sb",
     }
-    counts = fetch_socrata_csv(FREMONT_CSV_URL, raw_dir / "fremont_bridge_counts.csv", params)
+    counts = fetch_socrata_csv(FREMONT_CSV_URL, raw_dir / FREMONT_BRIDGE_COUNTS_CSV, params)
     if counts.empty:
         return pd.DataFrame(columns=["cell_id", "hour", "observed_count", "bike_count_proxy"])
 
@@ -233,7 +243,7 @@ def load_transit_accessibility(raw_dir: Path) -> float:
     try:
         params = {"$limit": 5000}
         access = fetch_socrata_csv(
-            TRANSIT_ACCESS_CSV_URL, raw_dir / "transit_accessibility.csv", params
+            TRANSIT_ACCESS_CSV_URL, raw_dir / TRANSIT_ACCESSIBILITY_CSV, params
         )
     except Exception:
         return 0.0
@@ -292,7 +302,7 @@ def load_lehd_jobs(raw_dir: Path, year: int, spec: GridSpec) -> pd.DataFrame:
 
     # The GitHub file is small and stable enough for a hackathon; it provides county geometries.
     # If tract centroids are unavailable, county centroid still gives a useful regional pressure flag.
-    county_geojson = download_file(CENSUS_TRACT_GEOJSON_URL, raw_dir / "us_counties.geojson")
+    county_geojson = download_file(CENSUS_TRACT_GEOJSON_URL, raw_dir / US_COUNTIES_GEOJSON)
     geo = json.loads(county_geojson.read_text())
     king_feature = next(
         (
@@ -413,16 +423,12 @@ def write_geojson(features: pd.DataFrame, grid: pd.DataFrame, output_path: Path)
 
 def main() -> None:
     args = parse_args()
-    base_dir = Path(__file__).resolve().parent
-    raw_dir = (base_dir / args.raw_dir).resolve()
-    out_dir = (base_dir / args.out_dir).resolve()
+    raw_dir = Path(args.raw_dir)
+    out_dir = Path(args.out_dir)
     ensure_dirs(raw_dir, out_dir)
 
     grid, spec = build_grid(args.cell_size_m)
-    gtfs_dir = Path(args.gtfs_dir)
-    if not gtfs_dir.is_absolute():
-        gtfs_dir = (base_dir.parents[1] / gtfs_dir).resolve()
-    gtfs_dir = maybe_download_gtfs(gtfs_dir, raw_dir, args.download_gtfs)
+    gtfs_dir = maybe_download_gtfs(Path(args.gtfs_dir), raw_dir, args.download_gtfs)
 
     gtfs_frequency = load_gtfs_frequency(gtfs_dir, spec)
     fremont_counts = load_fremont_counts(raw_dir, args.fremont_limit, spec)
@@ -443,8 +449,8 @@ def main() -> None:
         lehd_jobs=lehd_jobs,
     )
 
-    csv_path = out_dir / "seattle_heatmap_features.csv"
-    geojson_path = out_dir / "seattle_heatmap_grid.geojson"
+    csv_path = out_dir / SEATTLE_HEATMAP_FEATURES_CSV
+    geojson_path = out_dir / SEATTLE_HEATMAP_GRID_GEOJSON
     features.to_csv(csv_path, index=False)
     write_geojson(features, grid, geojson_path)
 

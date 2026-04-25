@@ -32,12 +32,15 @@ data_processing/
         build_heatmap_dataset.py
     models/
       train_heatmap_model.py
+  scripts/
+    download_raw_data.py
+    download_raw_data.sh
   curr_data/
     raw/
     processed/
 ```
 
-Most module defaults point at `data/raw` and `data/processed`. The current checked-in/generated artifacts in this workspace are under `curr_data/raw` and `curr_data/processed`, so future runs should either pass `--raw-dir curr_data/raw --out-dir curr_data/processed` or normalize the folder naming.
+Pipeline defaults point at `curr_data/raw` and `curr_data/processed`. Use `scripts/download_raw_data.py` to populate the raw cache before running pipeline modules. `scripts/download_raw_data.sh` is only a thin compatibility wrapper.
 
 ## Current Architecture
 
@@ -50,6 +53,7 @@ This is the path that supports a future dispersion model.
 ```text
 Delhi station coordinates
 Delhi ward geometry + population
+scripts/download_raw_data.py
         |
         v
 src.pipelines.delhi.build_population_vectors
@@ -70,6 +74,7 @@ Delhi Metro trips -> src.pipelines.delhi.transform_metro
                     +--> delhi_test_features.csv
 
 Seattle GTFS + ACS/TIGER population data
+scripts/download_raw_data.py
         |
         v
 src.pipelines.seattle.build_station_vectors
@@ -87,6 +92,8 @@ Inputs:
 - Delhi Metro station coordinate CSV.
 - Delhi ward GeoJSON.
 - Delhi ward population CSV.
+
+These public files are cached by `scripts/download_raw_data.py`.
 
 Process:
 
@@ -115,6 +122,8 @@ Inputs:
 
 - `curr_data/raw/delhi_metro_updated.csv`
 - `curr_data/processed/delhi_station_density.csv`
+
+The raw trip CSV is downloaded by `scripts/download_raw_data.py` from the Kaggle dataset `nikhilkumar766/delhi-metro-dataset`, extracted from the archive, cached as `curr_data/raw/delhi_metro_updated.csv`, and validated for the required trip columns. If Kaggle requires authentication in a container, set `KAGGLE_USERNAME` and `KAGGLE_KEY`, or pass `--delhi-trips-url` with a direct CSV URL.
 
 Required raw trip fields:
 
@@ -185,6 +194,8 @@ Inputs:
 - Seattle ACS place population.
 - Census TIGER tract and place boundaries.
 
+`scripts/download_raw_data.py` caches the public Seattle files and extracts GTFS into the configured GTFS directory.
+
 Process:
 
 - Aggregate duplicate GTFS stops into station-level records.
@@ -203,7 +214,7 @@ Output:
 
 Current summary:
 
-- 43 Seattle stations.
+- 2,088 Seattle stations/stops.
 - 1000 meter station radius.
 - Seattle ACS population baseline: 734,603.
 
@@ -228,7 +239,7 @@ src.pipelines.seattle.build_heatmap_dataset
                     v
             src.models.train_heatmap_model
                     |
-                    +--> model_metrics.json
+                    +--> seattle_heatmap_model_metrics.json
                     +--> seattle_heatmap_predictions.csv
 ```
 
@@ -457,15 +468,13 @@ Possible integration:
 - Delhi `activity_score` and Seattle `activity_score` share the same density/connectivity proxy recipe, but Delhi connectivity is OD-link based until a Delhi GTFS/service feed is integrated.
 - Seattle station vectors are GTFS stop based, not a direct equivalent of Delhi Metro station topology.
 - The current heatmap model has only 168 observed target rows, so it should be treated as a demo proxy.
-- Folder naming is inconsistent between script defaults (`data/processed`) and current artifacts (`curr_data/processed`).
 - A transferred model should be reported as relative demand or dispersion unless calibrated against local labels.
 
 ## Recommended Next Implementation Steps
 
-1. Normalize paths so scripts consistently use either `data/` or `curr_data/`.
-2. Add a Delhi dispersion training script using `delhi_train_features.csv` and `delhi_test_features.csv`.
-3. Add a reusable OD-pair feature builder for any city station-vector file.
-4. Add a Seattle scoring script that creates Seattle OD pairs and applies the Delhi-trained model.
-5. Add evaluation and visualization outputs: metrics JSON, prediction CSV, and map-ready flow files.
-6. Decide how to calibrate Seattle predictions for the demo: relative score only, GTFS-scaled score, or local-observation-scaled score.
+1. Add a Delhi dispersion training script using `delhi_train_features.csv` and `delhi_test_features.csv`.
+2. Add a reusable OD-pair feature builder for any city station-vector file.
+3. Add a Seattle scoring script that creates Seattle OD pairs and applies the Delhi-trained model.
+4. Add evaluation and visualization outputs: metrics JSON, prediction CSV, and map-ready flow files.
+5. Decide how to calibrate Seattle predictions for the demo: relative score only, GTFS-scaled score, or local-observation-scaled score.
 

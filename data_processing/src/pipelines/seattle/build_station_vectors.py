@@ -12,6 +12,17 @@ import geopandas as gpd
 import pandas as pd
 import requests
 
+from src.common.artifacts import (
+    DEFAULT_GTFS_DIR,
+    DEFAULT_PROCESSED_DIR,
+    DEFAULT_RAW_DIR,
+    KING_COUNTY_ACS_TRACT_POPULATION_CSV,
+    SEATTLE_ACS_PLACE_POPULATION_CSV,
+    SEATTLE_STATION_VECTOR_SUMMARY_JSON,
+    SEATTLE_STATION_VECTORS_CSV,
+    WASHINGTON_PLACE_SHAPEFILE_ZIP,
+    WASHINGTON_TRACT_SHAPEFILE_ZIP,
+)
 from src.common.geo_utils import compute_population_density_vectors
 from src.common.io_utils import cached_download, ensure_dir, write_csv
 from src.common.station_utils import (
@@ -31,9 +42,13 @@ ACS_URL = f"https://api.census.gov/data/{ACS_YEAR}/acs/acs5"
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Create Seattle station vectors.")
-    parser.add_argument("--gtfs-dir", default="gtfs", help="Local Seattle/Puget Sound GTFS directory.")
-    parser.add_argument("--raw-dir", default="data/raw", help="Raw data cache directory.")
-    parser.add_argument("--out-dir", default="data/processed", help="Output directory.")
+    parser.add_argument(
+        "--gtfs-dir",
+        default=str(DEFAULT_GTFS_DIR),
+        help="Local Seattle/Puget Sound GTFS directory.",
+    )
+    parser.add_argument("--raw-dir", default=str(DEFAULT_RAW_DIR), help="Raw data cache directory.")
+    parser.add_argument("--out-dir", default=str(DEFAULT_PROCESSED_DIR), help="Output directory.")
     parser.add_argument("--radius-m", type=int, default=1000, help="Station population radius.")
     return parser.parse_args()
 
@@ -55,9 +70,12 @@ def read_zip_shapefile(zip_path: Path) -> gpd.GeoDataFrame:
 
 
 def fetch_acs_tract_population(raw_dir: Path) -> pd.DataFrame:
-    output = raw_dir / "king_county_acs_tract_population.csv"
+    output = raw_dir / KING_COUNTY_ACS_TRACT_POPULATION_CSV
     if output.exists() and output.stat().st_size > 0:
-        return pd.read_csv(output, dtype={"state": "string", "county": "string", "tract": "string"})
+        return pd.read_csv(
+            output,
+            dtype={"state": "string", "county": "string", "tract": "string", "GEOID": "string"},
+        )
 
     response = requests.get(
         ACS_URL,
@@ -74,7 +92,7 @@ def fetch_acs_tract_population(raw_dir: Path) -> pd.DataFrame:
 
 
 def fetch_seattle_place_population(raw_dir: Path) -> float:
-    output = raw_dir / "seattle_acs_place_population.csv"
+    output = raw_dir / SEATTLE_ACS_PLACE_POPULATION_CSV
     if output.exists() and output.stat().st_size > 0:
         cached = pd.read_csv(output)
         return float(cached["population"].iloc[0])
@@ -93,8 +111,8 @@ def fetch_seattle_place_population(raw_dir: Path) -> float:
 
 
 def load_population_geometries(raw_dir: Path) -> tuple[gpd.GeoDataFrame, gpd.GeoDataFrame, float]:
-    tract_zip = cached_download(TRACT_ZIP_URL, raw_dir / "cb_2022_53_tract_500k.zip")
-    place_zip = cached_download(PLACE_ZIP_URL, raw_dir / "cb_2022_53_place_500k.zip")
+    tract_zip = cached_download(TRACT_ZIP_URL, raw_dir / WASHINGTON_TRACT_SHAPEFILE_ZIP)
+    place_zip = cached_download(PLACE_ZIP_URL, raw_dir / WASHINGTON_PLACE_SHAPEFILE_ZIP)
 
     tract_population = fetch_acs_tract_population(raw_dir)
     tracts = read_zip_shapefile(tract_zip)
@@ -114,7 +132,11 @@ def build_gtfs_connectivity(gtfs_dir: Path) -> pd.DataFrame:
     stops = stops[in_seattle_bbox(stops)].copy()
 
     raw_stops = read_gtfs_stops(gtfs_dir)[["stop_id", "station_id"]]
-    stop_times = pd.read_csv(gtfs_dir / "stop_times.txt", usecols=["stop_id", "trip_id"])
+    stop_times = pd.read_csv(
+        gtfs_dir / "stop_times.txt",
+        usecols=["stop_id", "trip_id"],
+        dtype={"stop_id": "string", "trip_id": "string"},
+    )
     stop_times["stop_id"] = stop_times["stop_id"].astype(str)
     raw_stops["stop_id"] = raw_stops["stop_id"].astype(str)
     departures = (
@@ -163,14 +185,14 @@ def main() -> None:
         "city_average_population_density",
         "residential_density_ratio",
     ]
-    output_path = write_csv(vectors[output_columns], out_dir / "seattle_station_vectors.csv")
+    output_path = write_csv(vectors[output_columns], out_dir / SEATTLE_STATION_VECTORS_CSV)
     summary = {
         "stations": int(len(vectors)),
         "radius_m": args.radius_m,
         "seattle_population": seattle_population,
         "output": str(output_path),
     }
-    (out_dir / "seattle_station_vector_summary.json").write_text(json.dumps(summary, indent=2))
+    (out_dir / SEATTLE_STATION_VECTOR_SUMMARY_JSON).write_text(json.dumps(summary, indent=2))
     print(json.dumps(summary, indent=2))
 
 

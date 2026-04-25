@@ -13,6 +13,13 @@ from sklearn.ensemble import HistGradientBoostingRegressor
 from sklearn.metrics import mean_absolute_error, mean_squared_error
 from sklearn.model_selection import train_test_split
 
+from src.common.artifacts import (
+    DEFAULT_PROCESSED_DIR,
+    SEATTLE_HEATMAP_FEATURES_CSV,
+    SEATTLE_HEATMAP_MODEL_METRICS_JSON,
+    SEATTLE_HEATMAP_PREDICTIONS_CSV,
+)
+
 
 FEATURE_COLUMNS = [
     "center_lat",
@@ -32,17 +39,12 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--features-csv",
-<<<<<<<< HEAD:seattle/scripts/train_heatmap_model.py
-        default="../data/processed/seattle_heatmap_features.csv",
-        help="Feature CSV produced by build_heatmap_dataset.py.",
-========
-        default="data/processed/seattle_heatmap_features.csv",
+        default=str(DEFAULT_PROCESSED_DIR / SEATTLE_HEATMAP_FEATURES_CSV),
         help="Feature CSV produced by src.pipelines.seattle.build_heatmap_dataset.",
->>>>>>>> 6fd3811 (Restructuring data processing):data_processing/src/models/train_heatmap_model.py
     )
     parser.add_argument(
         "--out-dir",
-        default="../data/processed",
+        default=str(DEFAULT_PROCESSED_DIR),
         help="Directory for metrics and scored prediction outputs.",
     )
     parser.add_argument(
@@ -91,17 +93,16 @@ def train_model(features: pd.DataFrame, min_target_rows: int) -> tuple[dict, pd.
 
 def main() -> None:
     args = parse_args()
-    base_dir = Path(__file__).resolve().parent
-    out_dir = (base_dir / args.out_dir).resolve()
+    out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    features = pd.read_csv((base_dir / args.features_csv).resolve())
+    features = pd.read_csv(args.features_csv)
     metrics, scored = train_model(features, args.min_target_rows)
 
-    metrics_path = out_dir / "model_metrics.json"
+    metrics_path = out_dir / SEATTLE_HEATMAP_MODEL_METRICS_JSON
     metrics_path.write_text(json.dumps(metrics, indent=2))
     if scored is not None:
-        scored.to_csv(out_dir / "seattle_heatmap_predictions.csv", index=False)
+        scored.to_csv(out_dir / SEATTLE_HEATMAP_PREDICTIONS_CSV, index=False)
 
     print(json.dumps({"metrics": str(metrics_path), **metrics}, indent=2))
 

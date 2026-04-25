@@ -10,6 +10,13 @@ from pathlib import Path
 import pandas as pd
 from sklearn.model_selection import train_test_split
 
+from src.common.artifacts import (
+    DEFAULT_PROCESSED_DIR,
+    DELHI_TEST_FEATURES_CSV,
+    DELHI_TRAIN_FEATURES_CSV,
+    DELHI_TRAIN_TEST_SUMMARY_JSON,
+    DELHI_TRIP_FEATURES_CSV,
+)
 from src.common.io_utils import ensure_dir, write_csv
 
 
@@ -17,10 +24,10 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Split Delhi trip features into train/test files.")
     parser.add_argument(
         "--features-csv",
-        default="data/processed/delhi_trip_features.csv",
+        default=str(DEFAULT_PROCESSED_DIR / DELHI_TRIP_FEATURES_CSV),
         help="Input trip features from src.pipelines.delhi.transform_metro.",
     )
-    parser.add_argument("--out-dir", default="data/processed", help="Output directory.")
+    parser.add_argument("--out-dir", default=str(DEFAULT_PROCESSED_DIR), help="Output directory.")
     parser.add_argument("--test-size", type=float, default=0.2, help="Test split fraction.")
     parser.add_argument("--random-state", type=int, default=42, help="Deterministic split seed.")
     return parser.parse_args()
@@ -41,8 +48,8 @@ def main() -> None:
         stratify=usable["is_weekend"] if "is_weekend" in usable.columns else None,
     )
 
-    train_path = write_csv(train, out_dir / "delhi_train_features.csv")
-    test_path = write_csv(test, out_dir / "delhi_test_features.csv")
+    train_path = write_csv(train, out_dir / DELHI_TRAIN_FEATURES_CSV)
+    test_path = write_csv(test, out_dir / DELHI_TEST_FEATURES_CSV)
     summary = {
         "input_rows": int(len(features)),
         "usable_rows": int(len(usable)),
@@ -51,7 +58,7 @@ def main() -> None:
         "train": str(train_path),
         "test": str(test_path),
     }
-    (out_dir / "delhi_train_test_summary.json").write_text(json.dumps(summary, indent=2))
+    (out_dir / DELHI_TRAIN_TEST_SUMMARY_JSON).write_text(json.dumps(summary, indent=2))
     print(json.dumps(summary, indent=2))
 
 

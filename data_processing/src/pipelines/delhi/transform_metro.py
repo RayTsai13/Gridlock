@@ -13,6 +13,14 @@ from pathlib import Path
 
 import pandas as pd
 
+from src.common.artifacts import (
+    DEFAULT_PROCESSED_DIR,
+    DEFAULT_RAW_DIR,
+    DELHI_STATION_DENSITY_CSV,
+    DELHI_STATION_VECTORS_CSV,
+    DELHI_TRIP_FEATURES_CSV,
+    DELHI_TRIPS_CSV,
+)
 from src.common.station_utils import (
     activity_proxy_from_density_and_connectivity,
     add_rank_and_scores,
@@ -41,17 +49,17 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--input",
-        default="data/raw/delhi_metro_updated.csv",
+        default=str(DEFAULT_RAW_DIR / DELHI_TRIPS_CSV),
         help="Delhi Metro input CSV.",
     )
     parser.add_argument(
         "--out-dir",
-        default="data/processed",
+        default=str(DEFAULT_PROCESSED_DIR),
         help="Directory for transformed CSV outputs.",
     )
     parser.add_argument(
         "--density-vectors",
-        default="data/processed/delhi_station_density.csv",
+        default=str(DEFAULT_PROCESSED_DIR / DELHI_STATION_DENSITY_CSV),
         help="Optional density vectors from src.pipelines.delhi.build_population_vectors.",
     )
     return parser.parse_args()
@@ -254,8 +262,8 @@ def main() -> None:
     station_vectors = build_station_vectors(trips, density_vectors)
     trip_features = build_trip_features(trips, station_vectors)
 
-    station_path = out_dir / "delhi_station_vectors.csv"
-    trip_path = out_dir / "delhi_trip_features.csv"
+    station_path = out_dir / DELHI_STATION_VECTORS_CSV
+    trip_path = out_dir / DELHI_TRIP_FEATURES_CSV
     station_output = station_vectors.rename(columns={"station_clean": "station_name"})
     station_output.to_csv(station_path, index=False)
     trip_features.to_csv(trip_path, index=False)
