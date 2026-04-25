@@ -15,7 +15,13 @@ from src.common.artifacts import (
     DELHI_STATION_GTFS_FREQUENCY_CSV,
     DELHI_STATION_VECTORS_CSV,
 )
-from src.common.gtfs_utils import build_station_hourly_frequency, read_stop_station_map
+from src.common.gtfs_utils import (
+    DEFAULT_STATION_ROUTE_TYPES,
+    build_station_hourly_frequency,
+    parse_agency_ids,
+    parse_route_types,
+    read_stop_station_map,
+)
 from src.common.io_utils import ensure_dir, write_csv
 from src.common.station_utils import match_station_name, station_id
 
@@ -29,11 +35,26 @@ def parse_args() -> argparse.Namespace:
         help="Delhi station vectors used as the canonical station universe.",
     )
     parser.add_argument("--out-dir", default=str(DEFAULT_PROCESSED_DIR), help="Output directory.")
+    parser.add_argument(
+        "--route-types",
+        default=",".join(str(route_type) for route_type in DEFAULT_STATION_ROUTE_TYPES),
+        help="Comma-separated GTFS route_type values to keep. Default keeps rail/station modes: 0,1,2.",
+    )
+    parser.add_argument(
+        "--agency-ids",
+        default="",
+        help="Optional comma-separated GTFS agency_id values to keep. Default keeps all agencies.",
+    )
     return parser.parse_args()
 
 
-def station_name_lookup(vectors: pd.DataFrame, gtfs_dir: Path) -> pd.DataFrame:
-    gtfs_stops = read_stop_station_map(gtfs_dir)
+def station_name_lookup(
+    vectors: pd.DataFrame,
+    gtfs_dir: Path,
+    route_types: tuple[int, ...] | None,
+    agency_ids: tuple[str, ...] | None,
+) -> pd.DataFrame:
+    gtfs_stops = read_stop_station_map(gtfs_dir, route_types=route_types, agency_ids=agency_ids)
     canonical_names = vectors["station_name"].dropna().astype(str).tolist()
     matched = []
     for stop in gtfs_stops.itertuples(index=False):
@@ -53,6 +74,8 @@ def main() -> None:
     gtfs_dir = Path(args.gtfs_dir)
     out_dir = ensure_dir(Path(args.out_dir))
     vectors = pd.read_csv(args.station_vectors)
+    route_types = parse_route_types(args.route_types)
+    agency_ids = parse_agency_ids(args.agency_ids)
 
     if not all((gtfs_dir / name).exists() for name in ["stops.txt", "stop_times.txt", "trips.txt"]):
         station_ids = sorted(vectors["station_id"].dropna().astype(str).unique())
@@ -62,11 +85,23 @@ def main() -> None:
         frequency["daily_scheduled_trains"] = 0
         frequency["has_gtfs_frequency"] = 0
         output_path = write_csv(frequency, out_dir / DELHI_STATION_GTFS_FREQUENCY_CSV)
-        print(json.dumps({"gtfs_available": False, "output": str(output_path)}, indent=2))
+        print(
+            json.dumps(
+                {
+                    "gtfs_available": False,
+                    "route_types": list(route_types) if route_types is not None else "all",
+                    "agency_ids": list(agency_ids) if agency_ids is not None else "all",
+                    "output": str(output_path),
+                },
+                indent=2,
+            )
+        )
         return
 
-    raw_frequency = build_station_hourly_frequency(gtfs_dir)
-    lookup = station_name_lookup(vectors, gtfs_dir)
+    raw_frequency = build_station_hourly_frequency(
+        gtfs_dir, route_types=route_types, agency_ids=agency_ids
+    )
+    lookup = station_name_lookup(vectors, gtfs_dir, route_types, agency_ids)
     frequency = raw_frequency.merge(
         lookup[["gtfs_station_id", "station_id"]],
         left_on="station_id",
@@ -94,6 +129,8 @@ def main() -> None:
             {
                 "gtfs_available": True,
                 "stations_with_frequency": int((daily["daily_scheduled_trains"] > 0).sum()),
+                "route_types": list(route_types) if route_types is not None else "all",
+                "agency_ids": list(agency_ids) if agency_ids is not None else "all",
                 "output": str(output_path),
             },
             indent=2,

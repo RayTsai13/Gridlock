@@ -17,7 +17,13 @@ from src.common.artifacts import (
     HEATMAP_TIMELAPSE_GRID_GEOJSON,
     SEATTLE_STATION_VECTORS_CSV,
 )
-from src.common.gtfs_utils import build_station_hourly_frequency
+from src.common.gtfs_utils import (
+    DEFAULT_SEATTLE_STATION_AGENCY_IDS,
+    DEFAULT_STATION_ROUTE_TYPES,
+    build_station_hourly_frequency,
+    parse_agency_ids,
+    parse_route_types,
+)
 from src.common.heatmap_utils import (
     add_hour_context,
     bbox_from_points,
@@ -43,6 +49,16 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--cell-size-m", type=int, default=500)
     parser.add_argument("--bbox", help="Optional bbox as min_lon,min_lat,max_lon,max_lat.")
     parser.add_argument("--decay-m", type=float, default=800.0, help="Distance decay for station exposure.")
+    parser.add_argument(
+        "--route-types",
+        default=",".join(str(route_type) for route_type in DEFAULT_STATION_ROUTE_TYPES),
+        help="Comma-separated GTFS route_type values to keep for frequency. Default keeps rail/station modes: 0,1,2.",
+    )
+    parser.add_argument(
+        "--agency-ids",
+        default=",".join(DEFAULT_SEATTLE_STATION_AGENCY_IDS),
+        help="Comma-separated GTFS agency_id values to keep for frequency. Default keeps Sound Transit: 40.",
+    )
     parser.add_argument("--added-stations-csv", help="Optional station rows to add before scoring.")
     parser.add_argument("--removed-stations-csv", help="Optional CSV with station_id rows to remove.")
     parser.add_argument(
@@ -81,10 +97,18 @@ def apply_station_scenarios(stations: pd.DataFrame, added_csv: str | None, remov
     return result.dropna(subset=["lat", "lon"])
 
 
-def load_frequency(gtfs_dir: Path, stations: pd.DataFrame, delta_csv: str | None) -> pd.DataFrame:
+def load_frequency(
+    gtfs_dir: Path,
+    stations: pd.DataFrame,
+    delta_csv: str | None,
+    route_types: tuple[int, ...] | None,
+    agency_ids: tuple[str, ...] | None,
+) -> pd.DataFrame:
     station_ids = sorted(stations["station_id"].dropna().astype(str).unique())
     if all((gtfs_dir / name).exists() for name in ["stops.txt", "stop_times.txt", "trips.txt"]):
-        frequency = build_station_hourly_frequency(gtfs_dir, station_ids=station_ids)
+        frequency = build_station_hourly_frequency(
+            gtfs_dir, station_ids=station_ids, route_types=route_types, agency_ids=agency_ids
+        )
     else:
         full_index = pd.MultiIndex.from_product([station_ids, range(24)], names=["station_id", "hour"])
         frequency = full_index.to_frame(index=False)
@@ -154,11 +178,15 @@ def main() -> None:
     args = parse_args()
     out_dir = ensure_dir(Path(args.out_dir))
     stations = pd.read_csv(args.station_vectors)
+    route_types = parse_route_types(args.route_types)
+    agency_ids = parse_agency_ids(args.agency_ids)
     stations = apply_station_scenarios(stations, args.added_stations_csv, args.removed_stations_csv)
     bbox = parse_bbox(args.bbox, stations)
     grid, _ = build_grid(bbox, args.cell_size_m)
     exposure = build_station_exposure(grid, stations, decay_m=args.decay_m)
-    frequency = load_frequency(Path(args.gtfs_dir), stations, args.frequency_delta_csv)
+    frequency = load_frequency(
+        Path(args.gtfs_dir), stations, args.frequency_delta_csv, route_types, agency_ids
+    )
     freq_exposure = frequency_exposure(grid, stations, frequency, args.decay_m)
 
     base = grid[["cell_id", "center_lat", "center_lon", "row", "col", "min_lat", "min_lon", "max_lat", "max_lon"]]
@@ -174,6 +202,8 @@ def main() -> None:
                 "rows": int(len(candidates)),
                 "grid_cells": int(grid["cell_id"].nunique()),
                 "stations": int(len(stations)),
+                "route_types": list(route_types) if route_types is not None else "all",
+                "agency_ids": list(agency_ids) if agency_ids is not None else "all",
                 "output": str(output_path),
                 "grid": str(out_dir / args.grid_output_name),
             },

@@ -24,12 +24,19 @@ from src.common.artifacts import (
     WASHINGTON_TRACT_SHAPEFILE_ZIP,
 )
 from src.common.geo_utils import compute_population_density_vectors
+from src.common.gtfs_utils import (
+    DEFAULT_SEATTLE_STATION_AGENCY_IDS,
+    DEFAULT_STATION_ROUTE_TYPES,
+    filtered_trip_ids,
+    parse_agency_ids,
+    parse_route_types,
+    read_stop_station_map,
+)
 from src.common.io_utils import cached_download, ensure_dir, write_csv
 from src.common.station_utils import (
     activity_proxy_from_density_and_connectivity,
     add_rank_and_scores,
     aggregate_duplicate_stations,
-    read_gtfs_stops,
 )
 
 
@@ -50,6 +57,16 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--raw-dir", default=str(DEFAULT_RAW_DIR), help="Raw data cache directory.")
     parser.add_argument("--out-dir", default=str(DEFAULT_PROCESSED_DIR), help="Output directory.")
     parser.add_argument("--radius-m", type=int, default=1000, help="Station population radius.")
+    parser.add_argument(
+        "--route-types",
+        default=",".join(str(route_type) for route_type in DEFAULT_STATION_ROUTE_TYPES),
+        help="Comma-separated GTFS route_type values to keep. Default keeps rail/station modes: 0,1,2.",
+    )
+    parser.add_argument(
+        "--agency-ids",
+        default=",".join(DEFAULT_SEATTLE_STATION_AGENCY_IDS),
+        help="Comma-separated GTFS agency_id values to keep. Default keeps Sound Transit: 40.",
+    )
     return parser.parse_args()
 
 
@@ -127,16 +144,26 @@ def load_population_geometries(raw_dir: Path) -> tuple[gpd.GeoDataFrame, gpd.Geo
     return king_tracts, seattle_boundary, seattle_population
 
 
-def build_gtfs_connectivity(gtfs_dir: Path) -> pd.DataFrame:
-    stops = aggregate_duplicate_stations(read_gtfs_stops(gtfs_dir))
+def build_gtfs_connectivity(
+    gtfs_dir: Path,
+    route_types: tuple[int, ...] | None,
+    agency_ids: tuple[str, ...] | None,
+) -> pd.DataFrame:
+    filtered_stops = read_stop_station_map(
+        gtfs_dir, route_types=route_types, agency_ids=agency_ids
+    )
+    stops = aggregate_duplicate_stations(filtered_stops)
     stops = stops[in_seattle_bbox(stops)].copy()
 
-    raw_stops = read_gtfs_stops(gtfs_dir)[["stop_id", "station_id"]]
+    raw_stops = filtered_stops[["stop_id", "station_id"]]
     stop_times = pd.read_csv(
         gtfs_dir / "stop_times.txt",
         usecols=["stop_id", "trip_id"],
         dtype={"stop_id": "string", "trip_id": "string"},
     )
+    trip_ids = filtered_trip_ids(gtfs_dir, route_types, agency_ids=agency_ids)
+    if trip_ids is not None:
+        stop_times = stop_times[stop_times["trip_id"].isin(trip_ids)]
     stop_times["stop_id"] = stop_times["stop_id"].astype(str)
     raw_stops["stop_id"] = raw_stops["stop_id"].astype(str)
     departures = (
@@ -154,8 +181,10 @@ def main() -> None:
     args = parse_args()
     raw_dir = ensure_dir(Path(args.raw_dir))
     out_dir = ensure_dir(Path(args.out_dir))
+    route_types = parse_route_types(args.route_types)
+    agency_ids = parse_agency_ids(args.agency_ids)
 
-    stations = build_gtfs_connectivity(Path(args.gtfs_dir))
+    stations = build_gtfs_connectivity(Path(args.gtfs_dir), route_types, agency_ids)
     tracts, seattle_boundary, seattle_population = load_population_geometries(raw_dir)
     density = compute_population_density_vectors(
         stations=stations,
@@ -189,6 +218,8 @@ def main() -> None:
     summary = {
         "stations": int(len(vectors)),
         "radius_m": args.radius_m,
+        "route_types": list(route_types) if route_types is not None else "all",
+        "agency_ids": list(agency_ids) if agency_ids is not None else "all",
         "seattle_population": seattle_population,
         "output": str(output_path),
     }

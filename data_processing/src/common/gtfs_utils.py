@@ -11,6 +11,9 @@ import pandas as pd
 from src.common.station_utils import station_id
 
 
+DEFAULT_STATION_ROUTE_TYPES = (0, 1, 2)
+DEFAULT_SEATTLE_STATION_AGENCY_IDS = ("40",)
+
 GTFS_TABLES = {
     "agency": "agency.txt",
     "calendar": "calendar.txt",
@@ -19,6 +22,18 @@ GTFS_TABLES = {
     "stops": "stops.txt",
     "trips": "trips.txt",
 }
+
+
+def parse_route_types(value: str | None) -> tuple[int, ...] | None:
+    if value is None or value.strip() == "":
+        return None
+    return tuple(int(part.strip()) for part in value.split(",") if part.strip())
+
+
+def parse_agency_ids(value: str | None) -> tuple[str, ...] | None:
+    if value is None or value.strip() == "":
+        return None
+    return tuple(part.strip() for part in value.split(",") if part.strip())
 
 
 def parse_gtfs_hour(value: object) -> int | None:
@@ -59,7 +74,59 @@ def read_gtfs_table(gtfs_dir: Path, table: str, **kwargs) -> pd.DataFrame:
     return pd.read_csv(path, **kwargs)
 
 
-def read_stop_station_map(gtfs_dir: Path) -> pd.DataFrame:
+def filtered_trip_ids(
+    gtfs_dir: Path,
+    route_types: tuple[int, ...] | None,
+    agency_ids: tuple[str, ...] | None = None,
+) -> set[str] | None:
+    if route_types is None and agency_ids is None:
+        return None
+
+    routes = read_gtfs_table(
+        gtfs_dir,
+        "routes",
+        usecols=["agency_id", "route_id", "route_type"],
+        dtype={"agency_id": "string", "route_id": "string", "route_type": "Int64"},
+    )
+    route_mask = pd.Series(True, index=routes.index)
+    if route_types is not None:
+        route_mask &= routes["route_type"].isin(route_types)
+    if agency_ids is not None:
+        route_mask &= routes["agency_id"].isin(agency_ids)
+    route_ids = set(routes.loc[route_mask, "route_id"].astype("string").dropna())
+    trips = read_gtfs_table(
+        gtfs_dir,
+        "trips",
+        usecols=["route_id", "trip_id"],
+        dtype={"route_id": "string", "trip_id": "string"},
+    )
+    return set(trips.loc[trips["route_id"].isin(route_ids), "trip_id"].astype("string").dropna())
+
+
+def filtered_stop_ids(
+    gtfs_dir: Path,
+    route_types: tuple[int, ...] | None,
+    agency_ids: tuple[str, ...] | None = None,
+) -> set[str] | None:
+    trip_ids = filtered_trip_ids(gtfs_dir, route_types, agency_ids=agency_ids)
+    if trip_ids is None:
+        return None
+    if not trip_ids:
+        return set()
+    stop_times = read_gtfs_table(
+        gtfs_dir,
+        "stop_times",
+        usecols=["trip_id", "stop_id"],
+        dtype={"trip_id": "string", "stop_id": "string"},
+    )
+    return set(stop_times.loc[stop_times["trip_id"].isin(trip_ids), "stop_id"].astype("string").dropna())
+
+
+def read_stop_station_map(
+    gtfs_dir: Path,
+    route_types: tuple[int, ...] | None = None,
+    agency_ids: tuple[str, ...] | None = None,
+) -> pd.DataFrame:
     stops = read_gtfs_table(
         gtfs_dir,
         "stops",
@@ -76,17 +143,30 @@ def read_stop_station_map(gtfs_dir: Path) -> pd.DataFrame:
     stops["station_id"] = stops["station_name"].map(station_id)
     stops["lat"] = pd.to_numeric(stops["stop_lat"], errors="coerce")
     stops["lon"] = pd.to_numeric(stops["stop_lon"], errors="coerce")
+    stop_ids = filtered_stop_ids(gtfs_dir, route_types, agency_ids=agency_ids)
+    if stop_ids is not None:
+        stops = stops[stops["stop_id"].isin(stop_ids)]
     return stops.dropna(subset=["lat", "lon"])[["stop_id", "station_id", "station_name", "lat", "lon"]]
 
 
-def build_station_hourly_frequency(gtfs_dir: Path, station_ids: list[str] | None = None) -> pd.DataFrame:
-    stops = read_stop_station_map(gtfs_dir)[["stop_id", "station_id"]]
+def build_station_hourly_frequency(
+    gtfs_dir: Path,
+    station_ids: list[str] | None = None,
+    route_types: tuple[int, ...] | None = None,
+    agency_ids: tuple[str, ...] | None = None,
+) -> pd.DataFrame:
+    stops = read_stop_station_map(gtfs_dir, route_types=route_types, agency_ids=agency_ids)[
+        ["stop_id", "station_id"]
+    ]
     stop_times = read_gtfs_table(
         gtfs_dir,
         "stop_times",
         usecols=["trip_id", "departure_time", "stop_id"],
         dtype={"trip_id": "string", "departure_time": "string", "stop_id": "string"},
     )
+    trip_ids = filtered_trip_ids(gtfs_dir, route_types, agency_ids=agency_ids)
+    if trip_ids is not None:
+        stop_times = stop_times[stop_times["trip_id"].isin(trip_ids)]
     stop_times["hour"] = stop_times["departure_time"].map(parse_gtfs_hour)
     stop_times = stop_times.dropna(subset=["hour"])
     stop_times["hour"] = stop_times["hour"].astype(int)

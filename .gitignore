@@ -21,6 +21,7 @@ __pycache__/
 data_processing/curr_data/raw/
 data_processing/curr_data/processed/
 data_processing/gtfs/
+data_processing/gtfs_stations/
 seattle/data/raw/
 seattle/data/processed/
 

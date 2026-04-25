@@ -1,6 +1,14 @@
 {
-  "stations": 2088,
+  "stations": 19,
   "radius_m": 1000,
+  "route_types": [
+    0,
+    1,
+    2
+  ],
+  "agency_ids": [
+    "40"
+  ],
   "seattle_population": 734603.0,
   "output": "curr_data/processed/seattle_station_vectors.csv"
 }

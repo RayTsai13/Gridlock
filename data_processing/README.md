@@ -60,7 +60,44 @@ Useful options:
 
 Delhi GTFS is optional because there is no stable public DMRC GTFS URL baked into the repo. If you provide a GTFS zip, it is extracted to `gtfs_delhi/`; otherwise the Delhi frequency step emits zero-frequency fallback features and the model still trains on passenger-per-train labels.
 
+The Puget Sound GTFS feed includes buses and ferries. Create a cleaned station-only GTFS subset before Seattle station or heatmap work:
+
+```bash
+.venv/bin/python scripts/filter_gtfs_station_data.py \
+  --input-gtfs-dir gtfs \
+  --output-gtfs-dir gtfs_stations \
+  --route-types 0,1,2 \
+  --agency-ids 40
+```
+
+`route_type` values `0,1,2` keep rail-style service, and `agency_id` `40` keeps Sound Transit. Together this keeps Link/Sounder station service while excluding bus (`3`), ferry (`4`), Seattle Streetcar (`23`), Seattle Center Monorail (`96`), and Amtrak (`51`). The raw `gtfs/` directory is preserved as the source cache; downstream commands should use `gtfs_stations/` by default.
+
 `scripts/download_raw_data.sh` is a thin compatibility wrapper around the Python script.
+
+---
+
+## One-command pipeline scripts
+
+Use these wrappers when you want to rebuild or validate the full station-only workflow without rerunning each module manually:
+
+```bash
+# Build raw-derived features and cleaned station-only Seattle artifacts.
+.venv/bin/python scripts/build_features.py
+
+# Train the Seattle baseline and Delhi-trained timelapse model.
+.venv/bin/python scripts/train_models.py
+
+# Smoke-test event, station add/remove, and frequency-delta scenarios.
+.venv/bin/python scripts/test_scenarios.py
+```
+
+Common build options:
+
+```bash
+.venv/bin/python scripts/build_features.py --skip-download
+.venv/bin/python scripts/build_features.py --agency-ids 40 --route-types 0,1,2
+.venv/bin/python scripts/build_features.py --skip-seattle-heatmap
+```
 
 ---
 
@@ -77,17 +114,17 @@ Delhi GTFS is optional because there is no stable public DMRC GTFS URL baked int
 
 ```bash
 .venv/bin/python -m src.pipelines.seattle.build_heatmap_dataset \
-  --gtfs-dir gtfs \
+  --gtfs-dir gtfs_stations \
   --raw-dir curr_data/raw \
   --out-dir curr_data/processed \
   --fremont-limit 5000
 ```
 
-Uses local GTFS in `gtfs/`, Seattle Open Data Fremont Bridge counts, and Seattle transit accessibility data. Optional LEHD (larger download):
+Uses cleaned station-only GTFS in `gtfs_stations/`, Seattle Open Data Fremont Bridge counts, and Seattle transit accessibility data. Optional LEHD (larger download):
 
 ```bash
 .venv/bin/python -m src.pipelines.seattle.build_heatmap_dataset \
-  --gtfs-dir gtfs \
+  --gtfs-dir gtfs_stations \
   --raw-dir curr_data/raw \
   --out-dir curr_data/processed \
   --include-lehd \
@@ -107,7 +144,7 @@ CSV with `lat`, `lon`, `datetime`, `count`:
 
 ```bash
 .venv/bin/python -m src.pipelines.seattle.build_heatmap_dataset \
-  --gtfs-dir gtfs \
+  --gtfs-dir gtfs_stations \
   --raw-dir curr_data/raw \
   --out-dir curr_data/processed \
   --optional-counts-csv path/to/counts.csv
@@ -138,7 +175,7 @@ This path trains on Delhi Metro `Passengers` as **load per train/trip**, then sc
 # Build a Seattle 24x7 candidate grid using station proximity and GTFS frequency exposure.
 .venv/bin/python -m src.pipelines.common.build_heatmap_candidates \
   --station-vectors curr_data/processed/seattle_station_vectors.csv \
-  --gtfs-dir gtfs \
+  --gtfs-dir gtfs_stations \
   --out-dir curr_data/processed
 
 # Train on Delhi and score the candidate grid.
@@ -155,7 +192,7 @@ Route/station scenarios are handled by rebuilding candidate features with option
 ```bash
 .venv/bin/python -m src.pipelines.common.build_heatmap_candidates \
   --station-vectors curr_data/processed/seattle_station_vectors.csv \
-  --gtfs-dir gtfs \
+  --gtfs-dir gtfs_stations \
   --added-stations-csv path/to/added_stations.csv \
   --removed-stations-csv path/to/removed_stations.csv \
   --frequency-delta-csv path/to/frequency_delta.csv \
@@ -223,7 +260,7 @@ Run in this order so trip features pick up density columns.
 
 # Seattle: station vectors with density
 .venv/bin/python -m src.pipelines.seattle.build_station_vectors \
-  --gtfs-dir gtfs \
+  --gtfs-dir gtfs_stations \
   --raw-dir curr_data/raw \
   --out-dir curr_data/processed \
   --radius-m 1000
@@ -237,7 +274,7 @@ Run in this order so trip features pick up density columns.
 | `curr_data/processed/delhi_station_vectors.csv` | Stations appearing in trip data: proxy activity + connectivity + density where matched |
 | `curr_data/processed/delhi_trip_features.csv` | One row per trip with origin/destination vector columns and `target_passengers` |
 | `curr_data/processed/delhi_train_features.csv` / `delhi_test_features.csv` | Stratified split (rows with non-null targets) |
-| `curr_data/processed/seattle_station_vectors.csv` | Seattle-area GTFS stops in the Seattle bbox with density and proxy `activity_score` |
+| `curr_data/processed/seattle_station_vectors.csv` | Seattle-area rail/station GTFS stops in the Seattle bbox with density and proxy `activity_score` |
 
 Summary JSON files: `delhi_population_vector_summary.json`, `seattle_station_vector_summary.json` (where generated).
 
@@ -247,7 +284,7 @@ Summary JSON files: `delhi_population_vector_summary.json`, `seattle_station_vec
 - **Delhi trips**: Kaggle dataset `nikhilkumar766/delhi-metro-dataset`, cached as `curr_data/raw/delhi_metro_updated.csv`
 - **Delhi station lat/lon**: public coordinate CSV (default URL in `src.pipelines.delhi.build_population_vectors`)
 - **Delhi population**: OpenCity ward population CSV; **geometry**: DataMeet `Delhi_Wards.geojson` (ward numbers joined to population rows)
-- **Seattle**: local `gtfs/`; **ACS** `B01003_001E` (tract + Seattle place); **Census TIGER** cartographic boundary tract and place shapefiles (cached in `curr_data/raw/`)
+- **Seattle**: local raw `gtfs/`, cleaned station-only `gtfs_stations/`; **ACS** `B01003_001E` (tract + Seattle place); **Census TIGER** cartographic boundary tract and place shapefiles (cached in `curr_data/raw/`)
 
 `activity_score` is computed from the same proxy recipe in both station-vector builders: 70% `residential_density_ratio` plus 30% within-city connectivity percentile, then min-max normalized. Delhi connectivity currently comes from distinct origin/destination links in the trip file; Seattle connectivity comes from GTFS departures plus stop count. Delhi `Passengers` remains only as `target_passengers` in the trip feature table.
 
@@ -259,5 +296,6 @@ If a Delhi trip station name has no match in the coordinate file, `lat`/`lon` an
 
 - `curr_data/raw/`: cached downloads (GTFS zips, Census shapefiles, ward CSV, etc.)
 - `curr_data/processed/`: generated CSV/GeoJSON/JSON artifacts for the current workspace
-- `gtfs/`: extracted Puget Sound GTFS text files
+- `gtfs/`: extracted Puget Sound GTFS text files, including bus and ferry source rows
+- `gtfs_stations/`: cleaned Puget Sound GTFS subset for Sound Transit station work (`route_type` 0, 1, 2 and `agency_id` 40)
 - `gtfs_delhi/`: optional extracted Delhi GTFS text files

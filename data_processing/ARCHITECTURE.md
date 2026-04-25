@@ -40,8 +40,12 @@ data_processing/
       train_heatmap_model.py
       train_heatmap_timelapse_model.py
   scripts/
+    build_features.py
     download_raw_data.py
     download_raw_data.sh
+    filter_gtfs_station_data.py
+    test_scenarios.py
+    train_models.py
   curr_data/
     raw/
     processed/
@@ -49,9 +53,13 @@ data_processing/
 
 Pipeline defaults point at `curr_data/raw` and `curr_data/processed`. Use `scripts/download_raw_data.py` to populate the raw cache before running pipeline modules. `scripts/download_raw_data.sh` is only a thin compatibility wrapper. Delhi GTFS is optional and can be supplied via `--delhi-gtfs-url` or `--kaggle-delhi-gtfs-dataset`; if omitted, the Delhi frequency builder emits zero-frequency fallback rows.
 
+The Puget Sound GTFS feed is multimodal, so station-only work should first run `scripts/filter_gtfs_station_data.py`. It writes `gtfs_stations/` from raw `gtfs/`, keeping `route_type` 0, 1, and 2 plus Sound Transit `agency_id` 40. This excludes buses, ferries, Seattle Streetcar, Seattle Center Monorail, and Amtrak rows. Raw `gtfs/` remains the immutable source cache.
+
+For repeatable local runs, `scripts/build_features.py`, `scripts/train_models.py`, and `scripts/test_scenarios.py` orchestrate the common build, training, and scenario smoke-test commands.
+
 ## Current Architecture
 
-There are two related but separate data paths.
+There are three related but separate data paths.
 
 ### 1. Cross-City Station Vector Pipeline
 
@@ -80,8 +88,9 @@ Delhi Metro trips -> src.pipelines.delhi.transform_metro
                     +--> delhi_train_features.csv
                     +--> delhi_test_features.csv
 
-Seattle GTFS + ACS/TIGER population data
+Seattle station-only GTFS + ACS/TIGER population data
 scripts/download_raw_data.py
+scripts/filter_gtfs_station_data.py
         |
         v
 src.pipelines.seattle.build_station_vectors
@@ -196,18 +205,18 @@ Current summary:
 
 Inputs:
 
-- Local GTFS files.
+- Local station-only GTFS files from `gtfs_stations/`.
 - King County ACS tract population.
 - Seattle ACS place population.
 - Census TIGER tract and place boundaries.
 
-`scripts/download_raw_data.py` caches the public Seattle files and extracts GTFS into the configured GTFS directory.
+`scripts/download_raw_data.py` caches the public Seattle files and extracts raw GTFS into `gtfs/`. `scripts/filter_gtfs_station_data.py` writes `gtfs_stations/` with non-Sound-Transit rows removed.
 
 Process:
 
-- Aggregate duplicate GTFS stops into station-level records.
+- Aggregate duplicate station-only GTFS stops into station-level records.
 - Keep stations inside the Seattle bounding box.
-- Estimate station connectivity from GTFS departures and stop counts.
+- Estimate station connectivity from station-mode GTFS departures and stop counts.
 - Compute residential-density fields around each station using the same buffer method.
 - Estimate Seattle `activity_raw` as a proxy blend:
   - 70 percent residential density ratio.
@@ -221,7 +230,7 @@ Output:
 
 Current summary:
 
-- 2,088 Seattle stations/stops.
+- 19 Seattle Sound Transit station records after filtering to route types 0, 1, and 2 plus `agency_id` 40.
 - 1000 meter station radius.
 - Seattle ACS population baseline: 734,603.
 
@@ -231,7 +240,7 @@ The heatmap path is useful for a Seattle demo, but it is separate from the Delhi
 
 ```text
 Seattle bbox + grid
-GTFS supply
+Station-only GTFS supply
 Fremont Bridge counts
 Transit accessibility
 Optional manual counts
@@ -250,7 +259,7 @@ src.pipelines.seattle.build_heatmap_dataset
                     +--> seattle_heatmap_predictions.csv
 ```
 
-`src.pipelines.seattle.build_heatmap_dataset` creates a grid over Seattle, then expands each cell across hour and day-of-week combinations. It adds GTFS transit frequency, Fremont Bridge observed counts, optional local counts, accessibility score, and optional LEHD jobs.
+`src.pipelines.seattle.build_heatmap_dataset` creates a grid over Seattle, then expands each cell across hour and day-of-week combinations. It adds station-mode GTFS transit frequency, Fremont Bridge observed counts, optional local counts, accessibility score, and optional LEHD jobs.
 
 The output includes:
 
@@ -285,7 +294,7 @@ src.pipelines.delhi.build_heatmap_training_dataset
             src.models.train_heatmap_timelapse_model
                     ^
                     |
-City station vectors + GTFS
+City station vectors + station-only GTFS
         |
         v
 src.pipelines.common.build_heatmap_candidates
@@ -346,7 +355,7 @@ These fields are the bridge between cities.
 - `connectivity` keeps the underlying raw connectivity value.
 - `residential_density_ratio` compares station-buffer density against the city average.
 
-Important modeling caveat: Delhi and Seattle activity now use the same density/connectivity proxy recipe, but their connectivity sources still differ. Delhi connectivity currently comes from distinct trip-file OD links, while Seattle connectivity comes from GTFS departures plus stop count. Delhi passenger counts remain the supervised target, not a station-vector input.
+Important modeling caveat: Delhi and Seattle activity now use the same density/connectivity proxy recipe, but their connectivity sources still differ. Delhi connectivity currently comes from distinct trip-file OD links, while Seattle connectivity comes from station-mode GTFS departures plus stop count. Delhi passenger counts remain the supervised target, not a station-vector input.
 
 ## Delhi Trip Feature Schema
 
@@ -526,7 +535,7 @@ Possible integration:
 - Some Delhi trip station names may not match the coordinate/density source, leaving missing `lat`, `lon`, or density fields.
 - Delhi `activity_score` and Seattle `activity_score` share the same density/connectivity proxy recipe, but Delhi connectivity is OD-link based unless a reliable Delhi Metro GTFS/service feed is supplied.
 - Delhi GTFS frequency is optional because a stable public DMRC GTFS URL is not bundled. Without it, training still predicts load per train, but Delhi scheduled-train features are zero and hourly flow depends on the scored city's GTFS.
-- Seattle station vectors are GTFS stop based, not a direct equivalent of Delhi Metro station topology.
+- Seattle station vectors are filtered GTFS station/rail stop based, not a direct equivalent of Delhi Metro station topology.
 - The current heatmap model has only 168 observed target rows, so it should be treated as a demo proxy.
 - A transferred model should be reported as relative demand or dispersion unless calibrated against local labels.
 

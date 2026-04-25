@@ -34,6 +34,14 @@ from src.common.artifacts import (
     TRANSIT_ACCESSIBILITY_CSV,
     US_COUNTIES_GEOJSON,
 )
+from src.common.gtfs_utils import (
+    DEFAULT_SEATTLE_STATION_AGENCY_IDS,
+    DEFAULT_STATION_ROUTE_TYPES,
+    filtered_stop_ids,
+    filtered_trip_ids,
+    parse_agency_ids,
+    parse_route_types,
+)
 
 
 SEATTLE_BBOX = (-122.4597, 47.4810, -122.2244, 47.7340)
@@ -72,6 +80,16 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--raw-dir", default=str(DEFAULT_RAW_DIR), help="Raw data cache directory.")
     parser.add_argument("--out-dir", default=str(DEFAULT_PROCESSED_DIR), help="Processed output directory.")
     parser.add_argument("--cell-size-m", type=int, default=500, help="Grid cell size in meters.")
+    parser.add_argument(
+        "--route-types",
+        default=",".join(str(route_type) for route_type in DEFAULT_STATION_ROUTE_TYPES),
+        help="Comma-separated GTFS route_type values to keep. Default keeps rail/station modes: 0,1,2.",
+    )
+    parser.add_argument(
+        "--agency-ids",
+        default=",".join(DEFAULT_SEATTLE_STATION_AGENCY_IDS),
+        help="Comma-separated GTFS agency_id values to keep. Default keeps Sound Transit: 40.",
+    )
     parser.add_argument(
         "--fremont-limit",
         type=int,
@@ -176,8 +194,16 @@ def parse_gtfs_hour(value: object) -> int | None:
     return hour % 24
 
 
-def load_gtfs_frequency(gtfs_dir: Path, spec: GridSpec) -> pd.DataFrame:
+def load_gtfs_frequency(
+    gtfs_dir: Path,
+    spec: GridSpec,
+    route_types: tuple[int, ...] | None,
+    agency_ids: tuple[str, ...] | None,
+) -> pd.DataFrame:
     stops = pd.read_csv(gtfs_dir / "stops.txt", usecols=["stop_id", "stop_lat", "stop_lon"])
+    stop_ids = filtered_stop_ids(gtfs_dir, route_types, agency_ids=agency_ids)
+    if stop_ids is not None:
+        stops = stops[stops["stop_id"].astype("string").isin(stop_ids)]
     stops["cell_id"] = [
         cell_id_for(lat, lon, spec) for lat, lon in zip(stops["stop_lat"], stops["stop_lon"])
     ]
@@ -190,6 +216,9 @@ def load_gtfs_frequency(gtfs_dir: Path, spec: GridSpec) -> pd.DataFrame:
         usecols=["trip_id", "departure_time", "stop_id"],
         dtype={"trip_id": "string", "stop_id": "string", "departure_time": "string"},
     )
+    trip_ids = filtered_trip_ids(gtfs_dir, route_types, agency_ids=agency_ids)
+    if trip_ids is not None:
+        stop_times = stop_times[stop_times["trip_id"].isin(trip_ids)]
     stop_times["hour"] = stop_times["departure_time"].map(parse_gtfs_hour)
     stop_times = stop_times.dropna(subset=["hour"])
     stop_times["hour"] = stop_times["hour"].astype(int)
@@ -429,8 +458,10 @@ def main() -> None:
 
     grid, spec = build_grid(args.cell_size_m)
     gtfs_dir = maybe_download_gtfs(Path(args.gtfs_dir), raw_dir, args.download_gtfs)
+    route_types = parse_route_types(args.route_types)
+    agency_ids = parse_agency_ids(args.agency_ids)
 
-    gtfs_frequency = load_gtfs_frequency(gtfs_dir, spec)
+    gtfs_frequency = load_gtfs_frequency(gtfs_dir, spec, route_types, agency_ids)
     fremont_counts = load_fremont_counts(raw_dir, args.fremont_limit, spec)
     optional_counts = load_optional_counts(args.optional_counts_csv, spec)
     accessibility_score = load_transit_accessibility(raw_dir)
@@ -458,6 +489,8 @@ def main() -> None:
         "grid_cells": int(grid["cell_id"].nunique()),
         "feature_rows": int(len(features)),
         "gtfs_frequency_rows": int(len(gtfs_frequency)),
+        "route_types": list(route_types) if route_types is not None else "all",
+        "agency_ids": list(agency_ids) if agency_ids is not None else "all",
         "fremont_rows": int(len(fremont_counts)),
         "csv": str(csv_path),
         "geojson": str(geojson_path),
