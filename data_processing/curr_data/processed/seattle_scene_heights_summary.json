@@ -1,0 +1,16 @@
+{
+  "rows": 435339,
+  "leaf_nodes": 1354,
+  "rows_with_scene_centroid": 435339,
+  "height_field": "BLDGHEIGHT",
+  "eave_height_field": "EAVEHEIGHT",
+  "height_units_inferred": "feet",
+  "height_to_meter_factor": 0.30480060960121924,
+  "building_height_ft_min": -315.23260498,
+  "building_height_ft_max": 914.55377197,
+  "building_height_ft_avg": 14.378413792433353,
+  "eave_height_ft_min": 8.00090027,
+  "eave_height_ft_max": 680.5123291,
+  "eave_height_ft_avg": 16.531854217909444,
+  "note": "This file extracts official Seattle 3D shell attributes only. Joining to Building_Outlines_2023 still requires a separate matching step."
+}

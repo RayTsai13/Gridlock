@@ -225,9 +225,118 @@
   font-size: 0.85em;
 }
 
+.region-status-list {
+  display: grid;
+  gap: 8px;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(47, 38, 29, 0.12);
+}
+
+.region-status-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.region-status-name {
+  font-size: 0.88rem;
+  line-height: 1.2;
+}
+
+.region-status-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 68px;
+  padding: 4px 9px;
+  border-radius: 999px;
+  font-size: 0.76rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  background: rgba(90, 101, 114, 0.1);
+  color: #4d5966;
+}
+
+.region-status-chip.is-loaded {
+  background: rgba(88, 157, 120, 0.14);
+  color: #2f6b48;
+}
+
+.region-status-chip.is-loading,
+.region-status-chip.is-queued {
+  background: rgba(82, 137, 194, 0.14);
+  color: #2b5f8f;
+}
+
+.region-status-chip.is-error {
+  background: rgba(177, 77, 64, 0.14);
+  color: #8b372d;
+}
+
+.region-status-chip.is-idle {
+  background: rgba(90, 101, 114, 0.1);
+  color: #4d5966;
+}
+
+.map-status {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  max-width: min(320px, calc(100vw - 32px));
+  padding: 11px 14px;
+  border: 1px solid rgba(69, 117, 168, 0.2);
+  border-radius: 999px;
+  background: rgba(250, 252, 255, 0.94);
+  box-shadow: 0 12px 28px rgba(43, 77, 112, 0.14);
+  color: #23405d;
+  font-size: 0.92rem;
+  line-height: 1.2;
+  backdrop-filter: blur(8px);
+}
+
+.map-status-spinner {
+  width: 12px;
+  height: 12px;
+  border: 2px solid rgba(106, 166, 221, 0.25);
+  border-top-color: #6aa6dd;
+  border-radius: 999px;
+  flex: 0 0 auto;
+  animation: map-status-spin 0.85s linear infinite;
+}
+
+.map-status.is-error {
+  border-color: rgba(169, 62, 62, 0.24);
+  background: rgba(255, 247, 245, 0.96);
+  color: #8c332b;
+}
+
+@keyframes map-status-spin {
+  from {
+    transform: rotate(0deg);
+  }
+
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 @media (max-width: 720px) {
   .map-note {
     top: auto;
     bottom: 16px;
+  }
+
+  .map-status {
+    top: 16px;
+    left: 16px;
+    right: 16px;
+    justify-content: center;
+    max-width: none;
   }
 }
