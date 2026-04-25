@@ -23,6 +23,8 @@ sys.path.insert(0, str(ROOT_DIR))
 from src.common.artifacts import (  # noqa: E402
     DEFAULT_GTFS_DIR,
     DEFAULT_RAW_DIR,
+    DELHI_GTFS_ARCHIVE_ZIP,
+    DELHI_GTFS_DIR,
     DELHI_KAGGLE_ARCHIVE_ZIP,
     DELHI_STATION_COORDINATES_CSV,
     DELHI_TRIPS_CSV,
@@ -37,6 +39,7 @@ from src.common.artifacts import (  # noqa: E402
     WASHINGTON_PLACE_SHAPEFILE_ZIP,
     WASHINGTON_TRACT_SHAPEFILE_ZIP,
 )
+from src.common.gtfs_utils import extract_gtfs_archive  # noqa: E402
 
 DELHI_STATION_URL = (
     "https://raw.githubusercontent.com/kunalgupta2616/Classification-of-Delhi-Metro-stations/"
@@ -53,6 +56,7 @@ DELHI_WARD_POP_URL = (
 )
 
 DEFAULT_KAGGLE_DELHI_DATASET = "nikhilkumar766/delhi-metro-dataset"
+DEFAULT_KAGGLE_DELHI_GTFS_DATASET = ""
 GTFS_URL = "https://gtfs.sound.obaweb.org/prod/gtfs_puget_sound_consolidated.zip"
 TRACT_ZIP_URL = "https://www2.census.gov/geo/tiger/GENZ2022/shp/cb_2022_53_tract_500k.zip"
 PLACE_ZIP_URL = "https://www2.census.gov/geo/tiger/GENZ2022/shp/cb_2022_53_place_500k.zip"
@@ -99,6 +103,21 @@ def parse_args() -> argparse.Namespace:
         "--kaggle-delhi-dataset",
         default=os.environ.get("KAGGLE_DELHI_DATASET", DEFAULT_KAGGLE_DELHI_DATASET),
         help=f"Kaggle dataset for Delhi trips. Default: {DEFAULT_KAGGLE_DELHI_DATASET}",
+    )
+    parser.add_argument(
+        "--delhi-gtfs-url",
+        default=os.environ.get("DELHI_GTFS_URL", ""),
+        help="Direct URL for a Delhi Metro GTFS zip. Optional; if omitted, no Delhi GTFS is cached.",
+    )
+    parser.add_argument(
+        "--kaggle-delhi-gtfs-dataset",
+        default=os.environ.get("KAGGLE_DELHI_GTFS_DATASET", DEFAULT_KAGGLE_DELHI_GTFS_DATASET),
+        help="Optional Kaggle OWNER/SLUG for a Delhi GTFS archive.",
+    )
+    parser.add_argument(
+        "--delhi-gtfs-dir",
+        default=os.environ.get("DELHI_GTFS_DIR", DELHI_GTFS_DIR),
+        help=f"Directory for extracted Delhi GTFS txt files. Default: {DELHI_GTFS_DIR}",
     )
     parser.add_argument(
         "--fremont-limit",
@@ -267,6 +286,37 @@ def download_delhi_trips(
     return extract_delhi_trips_from_kaggle_zip(zip_path, destination)
 
 
+def download_optional_delhi_gtfs(raw_dir: Path, gtfs_dir: Path, delhi_gtfs_url: str, kaggle_dataset: str) -> bool:
+    source_url = delhi_gtfs_url.strip()
+    dataset = kaggle_dataset_from_url(source_url) if source_url else None
+    if dataset is None and kaggle_dataset.strip():
+        dataset = kaggle_dataset.strip()
+
+    if source_url and dataset is None:
+        zip_path = download(source_url, raw_dir / DELHI_GTFS_ARCHIVE_ZIP)
+    elif dataset:
+        zip_path = raw_dir / DELHI_GTFS_ARCHIVE_ZIP
+        api_url = f"https://www.kaggle.com/api/v1/datasets/download/{dataset}"
+        try:
+            download(api_url, zip_path, headers=kaggle_headers())
+        except Exception as exc:
+            print(
+                "Failed to download Delhi GTFS. Set DELHI_GTFS_URL to a direct GTFS zip, "
+                "or KAGGLE_DELHI_GTFS_DATASET to a Kaggle OWNER/SLUG archive.",
+                file=sys.stderr,
+            )
+            raise SystemExit(1) from exc
+    else:
+        print("skip    Delhi GTFS (set --delhi-gtfs-url or --kaggle-delhi-gtfs-dataset to enable)")
+        return False
+
+    extract_gtfs_archive(zip_path, gtfs_dir)
+    for name in ["stops.txt", "stop_times.txt", "trips.txt"]:
+        require_nonempty(gtfs_dir / name)
+    print(f"Delhi GTFS ready: {gtfs_dir}")
+    return True
+
+
 def write_rows_csv(path: Path, header: list[str], rows: list[list[object]]) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", newline="") as handle:
@@ -349,6 +399,7 @@ def main() -> None:
     args = parse_args()
     raw_dir = resolve_path(args.raw_dir)
     gtfs_dir = resolve_path(args.gtfs_dir)
+    delhi_gtfs_dir = resolve_path(args.delhi_gtfs_dir)
     include_gtfs = not args.skip_gtfs
 
     raw_dir.mkdir(parents=True, exist_ok=True)
@@ -361,6 +412,12 @@ def main() -> None:
         args.delhi_trips_url.strip(),
         args.kaggle_delhi_dataset.strip(),
         raw_dir,
+    )
+    has_delhi_gtfs = download_optional_delhi_gtfs(
+        raw_dir,
+        delhi_gtfs_dir,
+        args.delhi_gtfs_url,
+        args.kaggle_delhi_gtfs_dataset,
     )
 
     download(TRACT_ZIP_URL, raw_dir / WASHINGTON_TRACT_SHAPEFILE_ZIP)
@@ -393,6 +450,9 @@ def main() -> None:
 
     for path in required_files(raw_dir, gtfs_dir, include_gtfs, args.include_lehd, args.lehd_year):
         require_nonempty(path)
+    if has_delhi_gtfs:
+        for path in [delhi_gtfs_dir / "stops.txt", delhi_gtfs_dir / "stop_times.txt", delhi_gtfs_dir / "trips.txt"]:
+            require_nonempty(path)
 
     print(f"Raw cache ready: {raw_dir}")
 
