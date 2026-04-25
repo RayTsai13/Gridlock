@@ -8,17 +8,18 @@ export const heatmapLayer: LayerProps = {
 
     'heatmap-intensity': [
       'interpolate', ['linear'], ['zoom'],
-      10, 0.5,
-      13, 1,
-      16, 2,
+      10, 0.4,
+      13, 0.8,
+      15, 1.2,
+      16, 1.5,
     ],
 
     'heatmap-radius': [
       'interpolate', ['linear'], ['zoom'],
-      10, 20,
-      13, 40,
-      15, 70,
-      16, 100,
+      10, 8,
+      13, 18,
+      15, 35,
+      16, 50,
     ],
 
     'heatmap-color': [
