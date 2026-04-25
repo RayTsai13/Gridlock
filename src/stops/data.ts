@@ -55,12 +55,13 @@ const LINE_2_STOPS: TransitStop[] = [
   { id: 'bellevue-downtown', name: 'Bellevue Downtown', coordinates: [-122.1960, 47.6155] },
 ];
 
-/** Ballard extension stations — new line branching northwest from Westlake. */
+/** Ballard extension — unique stations not on the 1 or 2 Line. */
 const BALLARD_STOPS: TransitStop[] = [
   { id: 'denny',            name: 'Denny',            coordinates: [-122.3405, 47.6188] },
   { id: 'south-lake-union', name: 'South Lake Union',  coordinates: [-122.3377, 47.6258] },
   { id: 'seattle-center',   name: 'Seattle Center',    coordinates: [-122.3520, 47.6243] },
   { id: 'smith-cove',       name: 'Smith Cove',        coordinates: [-122.3635, 47.6378] },
+  { id: 'interbay',         name: 'Interbay',          coordinates: [-122.3765, 47.6478] },
   { id: 'ballard',          name: 'Ballard',           coordinates: [-122.3765, 47.6677] },
 ];
 
@@ -72,7 +73,7 @@ const LINK_1_LINE: TransitLine = {
   id: 'link-1-line',
   name: '1 Line',
   color: '#0063c6',
-  offset: -3,
+  offset: -4,
   stopIds: [
     'northgate', 'roosevelt', 'u-district', 'uw', 'capitol-hill',
     'westlake', 'symphony', 'pioneer-square', 'id-chinatown',
@@ -90,7 +91,7 @@ const LINK_2_LINE: TransitLine = {
   id: 'link-2-line',
   name: '2 Line',
   color: '#d63e2a',
-  offset: 3,
+  offset: 4,
   stopIds: [
     'northgate', 'roosevelt', 'u-district', 'uw', 'capitol-hill',
     'westlake', 'symphony', 'pioneer-square', 'id-chinatown',
@@ -98,14 +99,20 @@ const LINK_2_LINE: TransitLine = {
   ],
 };
 
+/**
+ * Ballard Line — runs from Ballard south through downtown to SODO.
+ * Shares Westlake → SODO with the 1 Line.
+ * All three lines overlap from Westlake → ID/Chinatown.
+ */
 const BALLARD_LINE: TransitLine = {
   id: 'ballard-line',
   name: 'Ballard Line',
   color: '#00875a',
   offset: 0,
   stopIds: [
-    'westlake', 'denny', 'south-lake-union', 'seattle-center',
-    'smith-cove', 'ballard',
+    'ballard', 'interbay', 'smith-cove', 'seattle-center',
+    'south-lake-union', 'denny', 'westlake', 'symphony',
+    'pioneer-square', 'id-chinatown', 'stadium', 'sodo',
   ],
 };
 

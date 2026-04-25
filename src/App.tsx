@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, useRef } from 'react';
 import { Layer, Map, NavigationControl, Source } from 'react-map-gl/maplibre';
 import type { LayerProps } from 'react-map-gl/maplibre';
 import type { FeatureCollection, Geometry } from 'geojson';
@@ -135,7 +135,7 @@ const buildingFillLayer: LayerProps = {
     ],
     'fill-extrusion-height': ['coalesce', ['get', 'height_m'], 0],
     'fill-extrusion-base': 0,
-    'fill-extrusion-opacity': 1,
+    'fill-extrusion-opacity': 0.85,
     'fill-extrusion-vertical-gradient': true,
   },
 };
@@ -222,10 +222,80 @@ function App() {
   const [buildingsError, setBuildingsError] = useState<string | null>(null);
   const [regionErrors, setRegionErrors] = useState<Record<string, string>>({});
   const [expansionModeId, setExpansionModeId] = useState(DEFAULT_MODE.id);
+  const [timeOfDay, setTimeOfDay] = useState(0);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const dialRef = useRef<HTMLDivElement>(null);
+  const [isDraggingDial, setIsDraggingDial] = useState(false);
 
   const activeMode = EXPANSION_MODES.find((m) => m.id === expansionModeId) ?? DEFAULT_MODE;
   const stopsGeoJSON = useMemo(() => stopsToGeoJSON(activeMode.stops), [activeMode]);
   const linesGeoJSON = useMemo(() => linesToGeoJSON(activeMode.lines, activeMode.stops), [activeMode]);
+
+  const updateTimeFromPointer = (clientX: number, clientY: number) => {
+    if (!dialRef.current) return;
+    const rect = dialRef.current.getBoundingClientRect();
+    const cx = rect.left + rect.width / 2;
+    const cy = rect.top + rect.height / 2;
+    const angle = Math.atan2(clientY - cy, clientX - cx);
+    let shiftedAngle = angle + Math.PI / 2;
+    if (shiftedAngle < 0) shiftedAngle += 2 * Math.PI;
+    let newTime = Math.round((shiftedAngle / (2 * Math.PI)) * 1440);
+    newTime = Math.round(newTime / 30) * 30;
+    if (newTime >= 1440) newTime = 0;
+    setTimeOfDay(newTime);
+  };
+
+  useEffect(() => {
+    const handlePointerMove = (e: PointerEvent) => {
+      if (!isDraggingDial) return;
+      updateTimeFromPointer(e.clientX, e.clientY);
+    };
+
+    const handlePointerUp = () => {
+      setIsDraggingDial(false);
+    };
+
+    if (isDraggingDial) {
+      window.addEventListener('pointermove', handlePointerMove);
+      window.addEventListener('pointerup', handlePointerUp);
+    }
+    return () => {
+      window.removeEventListener('pointermove', handlePointerMove);
+      window.removeEventListener('pointerup', handlePointerUp);
+    };
+  }, [isDraggingDial]);
+
+  useEffect(() => {
+    if (!isPlaying) return;
+    const interval = setInterval(() => {
+      setTimeOfDay((prev) => (prev >= 1410 ? 0 : prev + 30));
+    }, 200);
+    return () => clearInterval(interval);
+  }, [isPlaying]);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.code === 'Space') {
+        e.preventDefault();
+        setIsPlaying((prev) => !prev);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
+
+  const formatTime = (minutes: number) => {
+    const hours = Math.floor(minutes / 60);
+    const mins = minutes % 60;
+    const period = hours >= 12 ? 'PM' : 'AM';
+    const displayHours = hours % 12 || 12;
+    return `${displayHours}:${mins.toString().padStart(2, '0')} ${period}`;
+  };
+
+  const dialRadius = 60;
+  const thumbAngle = (timeOfDay / 1440) * 2 * Math.PI - Math.PI / 2;
+  const thumbX = dialRadius * Math.cos(thumbAngle);
+  const thumbY = dialRadius * Math.sin(thumbAngle);
 
   useEffect(() => {
     setBuildings(mergeFeatureCollections(Object.values(regionCollections)));
@@ -423,7 +493,7 @@ function App() {
         <NavigationControl position="top-right" />
 
         <Source id="official-seattle-buildings" type="geojson" data={buildings}>
-          <Layer {...buildingFillLayer} />
+          <Layer beforeId="watername_ocean" {...buildingFillLayer} />
         </Source>
 
         <Source id="heatmap-source" type="geojson" data={heatmapData}>
@@ -441,6 +511,43 @@ function App() {
           <Layer {...stopLabelLayer} />
         </Source>
       </Map>
+
+      <div className="radial-dial-container">
+        <div 
+          className="radial-dial" 
+          ref={dialRef}
+          onPointerDown={(e) => {
+            setIsDraggingDial(true);
+            updateTimeFromPointer(e.clientX, e.clientY);
+          }}
+          style={{ touchAction: 'none' }}
+        >
+          <svg viewBox="-75 -75 150 150" className="radial-dial-svg">
+            <circle cx="0" cy="0" r={dialRadius} className="dial-track" />
+            <line x1="0" y1={-dialRadius - 6} x2="0" y2={-dialRadius + 6} stroke="rgba(43, 77, 112, 0.4)" strokeWidth="2" />
+            <line x1="0" y1={dialRadius - 6} x2="0" y2={dialRadius + 6} stroke="rgba(43, 77, 112, 0.4)" strokeWidth="2" />
+            <line x1={-dialRadius - 6} y1="0" x2={-dialRadius + 6} y2="0" stroke="rgba(43, 77, 112, 0.4)" strokeWidth="2" />
+            <line x1={dialRadius - 6} y1="0" x2={dialRadius + 6} y2="0" stroke="rgba(43, 77, 112, 0.4)" strokeWidth="2" />
+            
+            <circle 
+              cx={thumbX} 
+              cy={thumbY} 
+              r="8" 
+              className="dial-thumb" 
+            />
+          </svg>
+          <div className="dial-center-content">
+            <span className="dial-time">{formatTime(timeOfDay)}</span>
+            <button
+              className="dial-play-btn"
+              onClick={(e) => { e.stopPropagation(); setIsPlaying(!isPlaying); }}
+              aria-label={isPlaying ? 'Pause' : 'Play'}
+            >
+              {isPlaying ? 'PAUSE' : 'PLAY'}
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
