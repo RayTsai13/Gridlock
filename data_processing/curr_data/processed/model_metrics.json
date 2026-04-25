@@ -1,0 +1,8 @@
+{
+  "skipped": false,
+  "rows": 168,
+  "mae": 24.91886381135529,
+  "rmse": 35.560297125704025,
+  "target": "target_count",
+  "note": "Baseline proxy model trained only where observed counts exist."
+}

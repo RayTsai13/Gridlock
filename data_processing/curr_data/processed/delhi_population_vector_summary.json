@@ -1,0 +1,8 @@
+{
+  "stations": 221,
+  "wards": 290,
+  "ward_population_rows": 217,
+  "matched_ward_population_rows": 222,
+  "radius_m": 1000,
+  "output": "data/processed/delhi_station_density.csv"
+}
