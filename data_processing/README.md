@@ -7,6 +7,8 @@ This repo contains two related paths:
 
 Shared code lives under `src/` (`io_utils`, `station_utils`, `geo_utils`). Scripts are small CLIs that read from `data/raw` or `data/processed` and write explicit CSV artifacts.
 
+Seattle-specific scripts and generated Seattle artifacts now live under [`seattle/`](../seattle/README.md). The current frontend Seattle map architecture is documented in [`docs/seattle-map-architecture.md`](../docs/seattle-map-architecture.md).
+
 ---
 
 ## Setup
@@ -22,27 +24,27 @@ python3 -m venv .venv
 
 ### Outputs
 
-- `data/processed/seattle_heatmap_features.csv`: rows by grid cell, hour, and day of week.
-- `data/processed/seattle_heatmap_grid.geojson`: grid polygons with `congestion_score` for MapLibre or `react-map-gl`.
-- `data/processed/model_metrics.json`: written by `train_heatmap_model.py`.
-- `data/processed/seattle_heatmap_predictions.csv`: optional model predictions.
+- `seattle/data/processed/seattle_heatmap_features.csv`: rows by grid cell, hour, and day of week.
+- `seattle/data/processed/seattle_heatmap_grid.geojson`: grid polygons with `congestion_score` for MapLibre or `react-map-gl`.
+- `seattle/data/processed/model_metrics.json`: written by `train_heatmap_model.py`.
+- `seattle/data/processed/seattle_heatmap_predictions.csv`: optional model predictions.
 
 ### Build
 
 ```bash
-.venv/bin/python build_heatmap_dataset.py --gtfs-dir gtfs --fremont-limit 5000
+.venv/bin/python seattle/scripts/build_heatmap_dataset.py --gtfs-dir gtfs --fremont-limit 5000
 ```
 
 Uses local GTFS in `gtfs/`, Seattle Open Data Fremont Bridge counts, and Seattle transit accessibility data. Optional LEHD (larger download):
 
 ```bash
-.venv/bin/python build_heatmap_dataset.py --gtfs-dir gtfs --include-lehd --lehd-year 2022
+.venv/bin/python seattle/scripts/build_heatmap_dataset.py --gtfs-dir gtfs --include-lehd --lehd-year 2022
 ```
 
 ### Train (separate step)
 
 ```bash
-.venv/bin/python train_heatmap_model.py --features-csv data/processed/seattle_heatmap_features.csv
+.venv/bin/python seattle/scripts/train_heatmap_model.py
 ```
 
 ### Optional manual counts
@@ -50,7 +52,7 @@ Uses local GTFS in `gtfs/`, Seattle Open Data Fremont Bridge counts, and Seattle
 CSV with `lat`, `lon`, `datetime`, `count`:
 
 ```bash
-.venv/bin/python build_heatmap_dataset.py --optional-counts-csv path/to/counts.csv
+.venv/bin/python seattle/scripts/build_heatmap_dataset.py --optional-counts-csv path/to/counts.csv
 ```
 
 ---
@@ -68,7 +70,7 @@ Run in this order so trip features pick up density columns.
 | 1 | `build_delhi_population_vectors.py` | Delhi station coordinates + ward population + ward polygons → per-station density |
 | 2 | `transform_delhi_metro.py` | Trip CSV → `delhi_station_vectors.csv` + `delhi_trip_features.csv` (merges density from step 1) |
 | 3 | `prepare_delhi_train_test.py` | Split `delhi_trip_features.csv` into train/test |
-| 4 | `build_seattle_station_vectors.py` | Seattle GTFS stops in bbox + ACS + TIGER tracts/place → `seattle_station_vectors.csv` |
+| 4 | `seattle/scripts/build_seattle_station_vectors.py` | Seattle GTFS stops in bbox + ACS + TIGER tracts/place → `seattle_station_vectors.csv` |
 
 ### Commands
 
@@ -88,7 +90,7 @@ Run in this order so trip features pick up density columns.
   --out-dir data/processed
 
 # Seattle: station vectors with density
-.venv/bin/python build_seattle_station_vectors.py --gtfs-dir gtfs --radius-m 1000
+.venv/bin/python seattle/scripts/build_seattle_station_vectors.py --gtfs-dir gtfs --radius-m 1000
 ```
 
 ### Cross-city outputs
@@ -99,7 +101,7 @@ Run in this order so trip features pick up density columns.
 | `data/processed/delhi_station_vectors.csv` | Stations appearing in trip data: activity + connectivity + density where matched |
 | `data/processed/delhi_trip_features.csv` | One row per trip with origin/destination vector columns and `target_passengers` |
 | `data/processed/delhi_train_features.csv` / `delhi_test_features.csv` | Stratified split (rows with non-null targets) |
-| `data/processed/seattle_station_vectors.csv` | Seattle-area GTFS stops in the Seattle bbox with density and combined `activity_score` |
+| `seattle/data/processed/seattle_station_vectors.csv` | Seattle-area GTFS stops in the Seattle bbox with density and combined `activity_score` |
 
 Summary JSON files: `delhi_population_vector_summary.json`, `seattle_station_vector_summary.json` (where generated).
 

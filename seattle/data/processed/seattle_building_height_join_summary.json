@@ -1,0 +1,12 @@
+{
+  "scene_rows_considered": 435231,
+  "scene_rows_matched": 416138,
+  "scene_rows_unmatched": 19093,
+  "footprints_fetched": 222349,
+  "footprints_matched": 212554,
+  "max_distance_m": 40.0,
+  "match_distance_m_min": 0.0011023320678469409,
+  "match_distance_m_max": 39.95692482168115,
+  "match_distance_m_avg": 1.917836680082153,
+  "note": "Matches are centroid-based and approximate. Review distance statistics before using the joined heights as production truth."
+}
