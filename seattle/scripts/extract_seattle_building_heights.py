@@ -34,13 +34,13 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--out-csv",
-        default="curr_data/processed/seattle_scene_heights.csv",
-        help="CSV output path relative to data_processing/.",
+        default="../data/processed/seattle_scene_heights.csv",
+        help="CSV output path relative to seattle/scripts/.",
     )
     parser.add_argument(
         "--summary-json",
-        default="curr_data/processed/seattle_scene_heights_summary.json",
-        help="Summary JSON path relative to data_processing/.",
+        default="../data/processed/seattle_scene_heights_summary.json",
+        help="Summary JSON path relative to seattle/scripts/.",
     )
     parser.add_argument(
         "--max-workers",

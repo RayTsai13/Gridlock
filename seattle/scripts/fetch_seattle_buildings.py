@@ -25,7 +25,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--out",
-        default="public/seattle-buildings.geojson",
+        default="../../public/seattle/seattle-buildings.geojson",
         help="Output GeoJSON file path.",
     )
     parser.add_argument(
@@ -105,7 +105,8 @@ def to_feature(element: dict) -> dict | None:
 
 def main() -> int:
     args = parse_args()
-    output_path = Path(args.out)
+    base_dir = Path(__file__).resolve().parent
+    output_path = (base_dir / args.out).resolve()
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
     try:

@@ -32,12 +32,12 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--features-csv",
-        default="data/processed/seattle_heatmap_features.csv",
+        default="../data/processed/seattle_heatmap_features.csv",
         help="Feature CSV produced by build_heatmap_dataset.py.",
     )
     parser.add_argument(
         "--out-dir",
-        default="data/processed",
+        default="../data/processed",
         help="Directory for metrics and scored prediction outputs.",
     )
     parser.add_argument(
@@ -86,10 +86,11 @@ def train_model(features: pd.DataFrame, min_target_rows: int) -> tuple[dict, pd.
 
 def main() -> None:
     args = parse_args()
-    out_dir = Path(args.out_dir)
+    base_dir = Path(__file__).resolve().parent
+    out_dir = (base_dir / args.out_dir).resolve()
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    features = pd.read_csv(args.features_csv)
+    features = pd.read_csv((base_dir / args.features_csv).resolve())
     metrics, scored = train_model(features, args.min_target_rows)
 
     metrics_path = out_dir / "model_metrics.json"

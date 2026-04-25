@@ -59,13 +59,13 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--join-csv",
-        default="curr_data/processed/seattle_building_height_join.csv",
-        help="Joined height CSV path relative to data_processing/.",
+        default="../data/processed/seattle_building_height_join.csv",
+        help="Joined height CSV path relative to seattle/scripts/.",
     )
     parser.add_argument(
         "--out-dir",
-        default="../public",
-        help="Output directory relative to data_processing/.",
+        default="../../public/seattle",
+        help="Output directory relative to seattle/scripts/.",
     )
     parser.add_argument(
         "--result-record-count",
@@ -212,7 +212,7 @@ def main() -> None:
         out_path.write_text(json.dumps(geojson_with_heights, separators=(",", ":")))
 
         summary = summarize(region_name, geojson_with_heights)
-        summary["out_path"] = str(out_path)
+        summary["out_path"] = f"/seattle/{out_path.name}"
         summaries.append(summary)
 
     summary_path = out_dir / "seattle-building-regions-summary.json"

@@ -65,7 +65,7 @@ Sent once on connection. Confirms the grid parameters the stream will use.
 ```
 id: 0
 event: config
-data: {"bounds":{"west":-122.3525,"south":47.6015,"east":-122.3245,"north":47.6195},"rows":120,"cols":100}
+data: {"bounds":{"west":-122.4357,"south":47.4957,"east":-122.2358,"north":47.7352},"rows":120,"cols":100}
 ```
 
 #### `frame`
@@ -157,6 +157,8 @@ source.addEventListener("clear", () => {
 });
 ```
 
+The heatmap stream is independent from the Seattle building layer. The current frontend map loads buildings from local cached files in `public/seattle/` and then overlays the SSE heatmap on top.
+
 ---
 
 ## Error Handling
@@ -165,4 +167,3 @@ source.addEventListener("clear", () => {
 - On reconnect, the browser sends `Last-Event-ID` header with the last received event ID.
 - The backend re-sends the `config` event followed by the latest frame on each new connection.
 - The frontend should handle receiving `config` multiple times (idempotent initialization).
-

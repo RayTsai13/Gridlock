@@ -16,13 +16,13 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--join-csv",
-        default="curr_data/processed/seattle_building_height_join.csv",
-        help="Joined height CSV path relative to data_processing/.",
+        default="../data/processed/seattle_building_height_join.csv",
+        help="Joined height CSV path relative to seattle/scripts/.",
     )
     parser.add_argument(
         "--out-json",
-        default="../public/seattle-building-heights.json",
-        help="JSON output path relative to data_processing/.",
+        default="../../public/seattle/seattle-building-heights.json",
+        help="JSON output path relative to seattle/scripts/.",
     )
     parser.add_argument(
         "--min-height-m",

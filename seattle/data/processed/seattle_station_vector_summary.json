@@ -2,5 +2,5 @@
   "stations": 43,
   "radius_m": 1000,
   "seattle_population": 734603.0,
-  "output": "data/processed/seattle_station_vectors.csv"
+  "output": "seattle/data/processed/seattle_station_vectors.csv"
 }

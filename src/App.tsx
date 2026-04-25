@@ -46,7 +46,7 @@ const BUILDING_REGIONS: BuildingRegion[] = [
   {
     id: 'downtown-core',
     label: 'Downtown Core',
-    url: '/seattle-buildings-downtown-core.geojson',
+    url: '/seattle/seattle-buildings-downtown-core.geojson',
     bounds: {
       west: -122.37,
       south: 47.585,
@@ -57,7 +57,7 @@ const BUILDING_REGIONS: BuildingRegion[] = [
   {
     id: 'east-neighborhoods',
     label: 'East Neighborhoods',
-    url: '/seattle-buildings-east-neighborhoods.geojson',
+    url: '/seattle/seattle-buildings-east-neighborhoods.geojson',
     bounds: {
       west: -122.32,
       south: 47.585,
@@ -68,7 +68,7 @@ const BUILDING_REGIONS: BuildingRegion[] = [
   {
     id: 'northwest-seattle',
     label: 'Northwest Seattle',
-    url: '/seattle-buildings-northwest-seattle.geojson',
+    url: '/seattle/seattle-buildings-northwest-seattle.geojson',
     bounds: {
       west: -122.43,
       south: 47.6205,
@@ -79,7 +79,7 @@ const BUILDING_REGIONS: BuildingRegion[] = [
   {
     id: 'west-seattle',
     label: 'West Seattle',
-    url: '/seattle-buildings-west-seattle.geojson',
+    url: '/seattle/seattle-buildings-west-seattle.geojson',
     bounds: {
       west: -122.432,
       south: 47.543,
@@ -90,7 +90,7 @@ const BUILDING_REGIONS: BuildingRegion[] = [
   {
     id: 'beacon-hill',
     label: 'Beacon Hill',
-    url: '/seattle-buildings-beacon-hill.geojson',
+    url: '/seattle/seattle-buildings-beacon-hill.geojson',
     bounds: {
       west: -122.3365,
       south: 47.55,

@@ -34,18 +34,18 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--scene-csv",
-        default="curr_data/processed/seattle_scene_heights.csv",
-        help="Scene-height CSV path relative to data_processing/.",
+        default="../data/processed/seattle_scene_heights.csv",
+        help="Scene-height CSV path relative to seattle/scripts/.",
     )
     parser.add_argument(
         "--out-csv",
-        default="curr_data/processed/seattle_building_height_join.csv",
-        help="Joined output CSV path relative to data_processing/.",
+        default="../data/processed/seattle_building_height_join.csv",
+        help="Joined output CSV path relative to seattle/scripts/.",
     )
     parser.add_argument(
         "--summary-json",
-        default="curr_data/processed/seattle_building_height_join_summary.json",
-        help="Join summary JSON path relative to data_processing/.",
+        default="../data/processed/seattle_building_height_join_summary.json",
+        help="Join summary JSON path relative to seattle/scripts/.",
     )
     parser.add_argument(
         "--max-distance-m",

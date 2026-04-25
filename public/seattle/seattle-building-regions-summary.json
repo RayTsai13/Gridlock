@@ -6,7 +6,7 @@
     "height_m_min": 1.516,
     "height_m_max": 278.433,
     "height_m_avg": 10.021613478358375,
-    "out_path": "/Users/raymondtsai/Desktop/UWBHacks '26/seattle-transit-sim/public/seattle-buildings-downtown-core.geojson"
+    "out_path": "/seattle/seattle-buildings-downtown-core.geojson"
   },
   {
     "region": "east-neighborhoods",
@@ -15,7 +15,7 @@
     "height_m_min": 1.502,
     "height_m_max": 94.125,
     "height_m_avg": 7.199503140074634,
-    "out_path": "/Users/raymondtsai/Desktop/UWBHacks '26/seattle-transit-sim/public/seattle-buildings-east-neighborhoods.geojson"
+    "out_path": "/seattle/seattle-buildings-east-neighborhoods.geojson"
   },
   {
     "region": "northwest-seattle",
@@ -24,7 +24,7 @@
     "height_m_min": 1.501,
     "height_m_max": 56.05,
     "height_m_avg": 6.674531580166408,
-    "out_path": "/Users/raymondtsai/Desktop/UWBHacks '26/seattle-transit-sim/public/seattle-buildings-northwest-seattle.geojson"
+    "out_path": "/seattle/seattle-buildings-northwest-seattle.geojson"
   },
   {
     "region": "west-seattle",
@@ -33,7 +33,7 @@
     "height_m_min": 1.502,
     "height_m_max": 51.066,
     "height_m_avg": 6.072654320404403,
-    "out_path": "/Users/raymondtsai/Desktop/UWBHacks '26/seattle-transit-sim/public/seattle-buildings-west-seattle.geojson"
+    "out_path": "/seattle/seattle-buildings-west-seattle.geojson"
   },
   {
     "region": "beacon-hill",
@@ -42,6 +42,6 @@
     "height_m_min": 1.51,
     "height_m_max": 67.011,
     "height_m_avg": 6.5023528923660505,
-    "out_path": "/Users/raymondtsai/Desktop/UWBHacks '26/seattle-transit-sim/public/seattle-buildings-beacon-hill.geojson"
+    "out_path": "/seattle/seattle-buildings-beacon-hill.geojson"
   }
 ]

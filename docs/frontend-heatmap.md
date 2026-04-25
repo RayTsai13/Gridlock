@@ -3,6 +3,7 @@
 How the frontend consumes the heatmap data stream and renders it on the map.
 
 See [heatmap-api-contract.md](./heatmap-api-contract.md) for the full wire protocol.
+See [seattle-map-architecture.md](./seattle-map-architecture.md) for the cached Seattle building layer that sits underneath the heatmap.
 
 ---
 
@@ -62,7 +63,7 @@ Key layer properties:
 | `heatmap-color`        | Color ramp from transparent → yellow → red | Standard density color scale                        |
 | `heatmap-opacity`      | ~0.7                                       | Semi-transparent so buildings show through           |
 
-The heatmap layer is placed **above** the building fill/outline layers in the map's layer stack so density is visible over the building footprints.
+The heatmap layer is placed **above** the building fill/extrusion layers in the map's layer stack so density is visible over the Seattle building footprints.
 
 ---
 
@@ -96,4 +97,4 @@ MapLibre heatmap layer (react-map-gl <Layer>)
 | `src/heatmap/grid.ts`   | Grid config types, centroid precomputation, frame-to-GeoJSON conversion |
 | `src/heatmap/stream.ts` | EventSource connection, event parsing, lifecycle management            |
 | `src/heatmap/layer.ts`  | MapLibre heatmap layer style definition                                |
-| `src/App.tsx`            | Wires stream → grid → Source/Layer into the existing map              |
+| `src/App.tsx`            | Wires stream → grid → Source/Layer into the existing Seattle map      |

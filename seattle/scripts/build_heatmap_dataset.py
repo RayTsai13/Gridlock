@@ -2,8 +2,8 @@
 """Build a Seattle foot-traffic heatmap feature dataset.
 
 The pipeline produces two artifacts:
-  1. data/processed/seattle_heatmap_features.csv for modeling/training.
-  2. data/processed/seattle_heatmap_grid.geojson for MapLibre/react-map-gl.
+  1. seattle/data/processed/seattle_heatmap_features.csv for modeling/training.
+  2. seattle/data/processed/seattle_heatmap_grid.geojson for MapLibre/react-map-gl.
 
 The output is a proxy congestion surface, not measured pedestrian volume.
 Observed public foot-traffic data is sparse, so the score blends transit
@@ -59,8 +59,8 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Download Sound Transit consolidated GTFS if --gtfs-dir is missing.",
     )
-    parser.add_argument("--raw-dir", default="data/raw", help="Raw data cache directory.")
-    parser.add_argument("--out-dir", default="data/processed", help="Processed output directory.")
+    parser.add_argument("--raw-dir", default="../data/raw", help="Raw data cache directory.")
+    parser.add_argument("--out-dir", default="../data/processed", help="Processed output directory.")
     parser.add_argument("--cell-size-m", type=int, default=500, help="Grid cell size in meters.")
     parser.add_argument(
         "--fremont-limit",
@@ -413,12 +413,16 @@ def write_geojson(features: pd.DataFrame, grid: pd.DataFrame, output_path: Path)
 
 def main() -> None:
     args = parse_args()
-    raw_dir = Path(args.raw_dir)
-    out_dir = Path(args.out_dir)
+    base_dir = Path(__file__).resolve().parent
+    raw_dir = (base_dir / args.raw_dir).resolve()
+    out_dir = (base_dir / args.out_dir).resolve()
     ensure_dirs(raw_dir, out_dir)
 
     grid, spec = build_grid(args.cell_size_m)
-    gtfs_dir = maybe_download_gtfs(Path(args.gtfs_dir), raw_dir, args.download_gtfs)
+    gtfs_dir = Path(args.gtfs_dir)
+    if not gtfs_dir.is_absolute():
+        gtfs_dir = (base_dir.parents[1] / gtfs_dir).resolve()
+    gtfs_dir = maybe_download_gtfs(gtfs_dir, raw_dir, args.download_gtfs)
 
     gtfs_frequency = load_gtfs_frequency(gtfs_dir, spec)
     fremont_counts = load_fremont_counts(raw_dir, args.fremont_limit, spec)
