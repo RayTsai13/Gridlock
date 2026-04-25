@@ -140,16 +140,6 @@ const buildingFillLayer: LayerProps = {
   },
 };
 
-const buildingOutlineLayer: LayerProps = {
-  id: 'official-seattle-buildings-line',
-  type: 'line',
-  paint: {
-    'line-color': '#6aa6dd',
-    'line-width': 1,
-    'line-opacity': 1,
-  },
-};
-
 async function fetchRegionBuildings(
   region: BuildingRegion,
   signal: AbortSignal,
@@ -434,7 +424,6 @@ function App() {
 
         <Source id="official-seattle-buildings" type="geojson" data={buildings}>
           <Layer {...buildingFillLayer} />
-          <Layer {...buildingOutlineLayer} />
         </Source>
 
         <Source id="heatmap-source" type="geojson" data={heatmapData}>
