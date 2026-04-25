@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Layer, Map, NavigationControl, Source } from 'react-map-gl/maplibre';
 import type { LayerProps } from 'react-map-gl/maplibre';
 import type { FeatureCollection, Geometry } from 'geojson';
@@ -7,6 +7,8 @@ import 'maplibre-gl/dist/maplibre-gl.css';
 import './App.css';
 import { useHeatmapStream } from './heatmap/stream.ts';
 import { heatmapLayer } from './heatmap/layer.ts';
+import { EXPANSION_MODES, stopsToGeoJSON, linesToGeoJSON } from './stops/data.ts';
+import { lineCasingLayer, lineRouteLayer, stopCircleLayer, stopDotLayer, stopLabelLayer } from './stops/layers.ts';
 
 const initialViewState = {
   longitude: -122.3337,
@@ -27,6 +29,8 @@ const emptyFeatureCollection: FeatureCollection<Geometry> = {
   type: 'FeatureCollection',
   features: [],
 };
+
+const DEFAULT_MODE = EXPANSION_MODES[0];
 
 type Bounds = {
   west: number;
@@ -136,16 +140,6 @@ const buildingFillLayer: LayerProps = {
   },
 };
 
-const buildingOutlineLayer: LayerProps = {
-  id: 'official-seattle-buildings-line',
-  type: 'line',
-  paint: {
-    'line-color': '#6aa6dd',
-    'line-width': 1,
-    'line-opacity': 1,
-  },
-};
-
 async function fetchRegionBuildings(
   region: BuildingRegion,
   signal: AbortSignal,
@@ -227,6 +221,11 @@ function App() {
   const [activeRegionId, setActiveRegionId] = useState<string | null>(REGION_LOAD_ORDER[0]);
   const [buildingsError, setBuildingsError] = useState<string | null>(null);
   const [regionErrors, setRegionErrors] = useState<Record<string, string>>({});
+  const [expansionModeId, setExpansionModeId] = useState(DEFAULT_MODE.id);
+
+  const activeMode = EXPANSION_MODES.find((m) => m.id === expansionModeId) ?? DEFAULT_MODE;
+  const stopsGeoJSON = useMemo(() => stopsToGeoJSON(activeMode.stops), [activeMode]);
+  const linesGeoJSON = useMemo(() => linesToGeoJSON(activeMode.lines, activeMode.stops), [activeMode]);
 
   useEffect(() => {
     setBuildings(mergeFeatureCollections(Object.values(regionCollections)));
@@ -369,15 +368,24 @@ function App() {
   return (
     <div className="map-shell">
       <aside className="map-note">
+        <div className="mode-selector">
+          <label className="mode-selector-label" htmlFor="expansion-mode">Expansion Mode</label>
+          <select
+            id="expansion-mode"
+            className="mode-selector-select"
+            value={expansionModeId}
+            onChange={(e) => setExpansionModeId(e.target.value)}
+          >
+            {EXPANSION_MODES.map((mode) => (
+              <option key={mode.id} value={mode.id}>{mode.name}</option>
+            ))}
+          </select>
+          <p className="mode-selector-desc">{activeMode.description}</p>
+        </div>
+
+        <div className="map-note-divider" />
+
         <h1>Official Seattle Buildings</h1>
-        <p>
-          Buildings now load from local Seattle region files instead of querying the city service
-          at runtime, starting with downtown core and then expanding outward.
-        </p>
-        <p>
-          Extrusion heights come from Seattle&apos;s official 3D building shells, pre-joined to the
-          2023 footprints.
-        </p>
 
         <div className="region-status-list" aria-label="Neighborhood loading status">
           {regionStatuses.map((region) => (
@@ -416,11 +424,21 @@ function App() {
 
         <Source id="official-seattle-buildings" type="geojson" data={buildings}>
           <Layer {...buildingFillLayer} />
-          <Layer {...buildingOutlineLayer} />
         </Source>
 
         <Source id="heatmap-source" type="geojson" data={heatmapData}>
           <Layer {...heatmapLayer} />
+        </Source>
+
+        <Source id="transit-lines" type="geojson" data={linesGeoJSON}>
+          <Layer {...lineCasingLayer} />
+          <Layer {...lineRouteLayer} />
+        </Source>
+
+        <Source id="transit-stops" type="geojson" data={stopsGeoJSON}>
+          <Layer {...stopCircleLayer} />
+          <Layer {...stopDotLayer} />
+          <Layer {...stopLabelLayer} />
         </Source>
       </Map>
     </div>
