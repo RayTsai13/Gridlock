@@ -3,6 +3,6 @@
   "usable_rows": 148500,
   "train_rows": 118800,
   "test_rows": 29700,
-  "train": "data/processed/delhi_train_features.csv",
-  "test": "data/processed/delhi_test_features.csv"
+  "train": "curr_data/processed/delhi_train_features.csv",
+  "test": "curr_data/processed/delhi_test_features.csv"
 }
