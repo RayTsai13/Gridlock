@@ -135,7 +135,7 @@ const buildingFillLayer: LayerProps = {
     ],
     'fill-extrusion-height': ['coalesce', ['get', 'height_m'], 0],
     'fill-extrusion-base': 0,
-    'fill-extrusion-opacity': 1,
+    'fill-extrusion-opacity': 0.85,
     'fill-extrusion-vertical-gradient': true,
   },
 };
@@ -222,10 +222,28 @@ function App() {
   const [buildingsError, setBuildingsError] = useState<string | null>(null);
   const [regionErrors, setRegionErrors] = useState<Record<string, string>>({});
   const [expansionModeId, setExpansionModeId] = useState(DEFAULT_MODE.id);
+  const [timeOfDay, setTimeOfDay] = useState(720);
+  const [isPlaying, setIsPlaying] = useState(false);
 
   const activeMode = EXPANSION_MODES.find((m) => m.id === expansionModeId) ?? DEFAULT_MODE;
   const stopsGeoJSON = useMemo(() => stopsToGeoJSON(activeMode.stops), [activeMode]);
   const linesGeoJSON = useMemo(() => linesToGeoJSON(activeMode.lines, activeMode.stops), [activeMode]);
+
+  useEffect(() => {
+    if (!isPlaying) return;
+    const interval = setInterval(() => {
+      setTimeOfDay((prev) => (prev >= 1439 ? 0 : prev + 1));
+    }, 100);
+    return () => clearInterval(interval);
+  }, [isPlaying]);
+
+  const formatTime = (minutes: number) => {
+    const hours = Math.floor(minutes / 60);
+    const mins = minutes % 60;
+    const period = hours >= 12 ? 'PM' : 'AM';
+    const displayHours = hours % 12 || 12;
+    return `${displayHours}:${mins.toString().padStart(2, '0')} ${period}`;
+  };
 
   useEffect(() => {
     setBuildings(mergeFeatureCollections(Object.values(regionCollections)));
@@ -423,7 +441,7 @@ function App() {
         <NavigationControl position="top-right" />
 
         <Source id="official-seattle-buildings" type="geojson" data={buildings}>
-          <Layer {...buildingFillLayer} />
+          <Layer beforeId="watername_ocean" {...buildingFillLayer} />
         </Source>
 
         <Source id="heatmap-source" type="geojson" data={heatmapData}>
@@ -441,6 +459,25 @@ function App() {
           <Layer {...stopLabelLayer} />
         </Source>
       </Map>
+
+      <div className="timeline-panel">
+        <button
+          className="timeline-play-btn"
+          onClick={() => setIsPlaying(!isPlaying)}
+          aria-label={isPlaying ? 'Pause' : 'Play'}
+        >
+          {isPlaying ? '⏸' : '▶'}
+        </button>
+        <input
+          type="range"
+          className="timeline-slider"
+          min="0"
+          max="1439"
+          value={timeOfDay}
+          onChange={(e) => setTimeOfDay(parseInt(e.target.value, 10))}
+        />
+        <span className="timeline-time">{formatTime(timeOfDay)}</span>
+      </div>
     </div>
   );
 }
