@@ -7,6 +7,7 @@ from dataclasses import dataclass
 
 MINUTES_PER_DAY = 24 * 60
 MINUTES_PER_WEEK = 7 * MINUTES_PER_DAY
+DEFAULT_SIM_STEP_SECONDS = 300
 
 
 @dataclass(frozen=True)
@@ -29,7 +30,7 @@ class SimTime:
 def sim_time_for_tick(
     tick: int,
     *,
-    sim_step_seconds: int = 1800,
+    sim_step_seconds: int = DEFAULT_SIM_STEP_SECONDS,
     time_bin_minutes: int = 30,
 ) -> SimTime:
     """Map a monotonically increasing simulation tick to the repeating week."""
@@ -44,7 +45,7 @@ def sim_time_for_tick(
 
 @dataclass
 class SimulationClock:
-    sim_step_seconds: int = 1800
+    sim_step_seconds: int = DEFAULT_SIM_STEP_SECONDS
     time_bin_minutes: int = 30
     current_tick: int = 0
 

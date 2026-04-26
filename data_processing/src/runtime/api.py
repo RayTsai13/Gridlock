@@ -19,7 +19,7 @@ from src.common.artifacts import (
     PROCESSED_MODEL_OUTPUTS_DIR,
     PROCESSED_SCENARIOS_DIR,
 )
-from src.runtime.clock import SimulationClock
+from src.runtime.clock import DEFAULT_SIM_STEP_SECONDS, SimulationClock
 from src.runtime.composer import FrameComposer
 from src.runtime.overlays import LiveOverlayManager
 from src.runtime.playback import PlaybackController
@@ -67,7 +67,7 @@ class HeatmapRuntime:
         cls,
         *,
         baseline_csv: Path = DEFAULT_BASELINE_CSV,
-        sim_step_seconds: int = 1800,
+        sim_step_seconds: int = DEFAULT_SIM_STEP_SECONDS,
         time_bin_minutes: int = 30,
         frame_interval_seconds: float = 1.0,
         display_threshold: float = 0.0,
@@ -109,7 +109,7 @@ class HeatmapRuntime:
 def create_app(
     *,
     baseline_csv: Path = DEFAULT_BASELINE_CSV,
-    sim_step_seconds: int = 1800,
+    sim_step_seconds: int = DEFAULT_SIM_STEP_SECONDS,
     time_bin_minutes: int = 30,
     frame_interval_seconds: float = 1.0,
     display_threshold: float = 0.0,
