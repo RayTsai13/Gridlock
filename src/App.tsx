@@ -345,6 +345,7 @@ function App() {
 
   // Deploy state: index of the highest deployed step (0 = Line 1 only)
   const [deployedIndex, setDeployedIndex] = useState(0);
+  const [isHeatmapVisible, setIsHeatmapVisible] = useState(true);
 
   // Building state
   const [regionCollections, setRegionCollections] = useState<
@@ -958,6 +959,21 @@ function App() {
           {viewMode === "angled" ? "2D" : "3D"}
         </button>
 
+        <button
+          className={`heatmap-toggle-button ${isHeatmapVisible ? "is-active" : ""}`}
+          onClick={() => setIsHeatmapVisible((current) => !current)}
+          type="button"
+          aria-label={isHeatmapVisible ? "Hide heatmap" : "Show heatmap"}
+          aria-pressed={isHeatmapVisible}
+          title={isHeatmapVisible ? "Hide heatmap" : "Show heatmap"}
+        >
+          <span className="heatmap-toggle-icon" aria-hidden="true">
+            <span />
+            <span />
+            <span />
+          </span>
+        </button>
+
         <div className="crowd-drop-control">
           <button
             className="crowd-draggable-btn"
@@ -993,9 +1009,11 @@ function App() {
           layers={deckLayers}
         />
 
-        <Source id="heatmap-source" type="geojson" data={heatmapData}>
-          <Layer {...heatmapLayer} />
-        </Source>
+        {isHeatmapVisible && (
+          <Source id="heatmap-source" type="geojson" data={heatmapData}>
+            <Layer {...heatmapLayer} />
+          </Source>
+        )}
 
         <Source id="transit-lines" type="geojson" data={linesGeoJSON}>
           <Layer {...lineCasingLayer} />

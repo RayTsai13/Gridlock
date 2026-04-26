@@ -502,6 +502,89 @@
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
 }
 
+.heatmap-toggle-button {
+  position: absolute;
+  top: 149px;
+  right: 10px;
+  width: 29px;
+  height: 29px;
+  background: var(--glass-bg, rgba(255, 255, 255, 0.8));
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  border-radius: 4px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.15);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  cursor: pointer;
+  z-index: 10;
+  transition: all 0.2s;
+}
+
+.heatmap-toggle-button:hover {
+  background: #ffffff;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+}
+
+.heatmap-toggle-button:focus-visible {
+  outline: 2px solid rgba(106, 166, 221, 0.78);
+  outline-offset: 2px;
+}
+
+.heatmap-toggle-button:not(.is-active) {
+  opacity: 0.58;
+}
+
+.heatmap-toggle-icon {
+  position: relative;
+  display: block;
+  width: 17px;
+  height: 17px;
+}
+
+.heatmap-toggle-icon span {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(0.5px);
+}
+
+.heatmap-toggle-icon span:nth-child(1) {
+  left: 1px;
+  top: 5px;
+  width: 11px;
+  height: 11px;
+  background: rgba(244, 109, 67, 0.78);
+}
+
+.heatmap-toggle-icon span:nth-child(2) {
+  right: 1px;
+  top: 1px;
+  width: 9px;
+  height: 9px;
+  background: rgba(255, 255, 191, 0.72);
+}
+
+.heatmap-toggle-icon span:nth-child(3) {
+  right: 3px;
+  bottom: 1px;
+  width: 7px;
+  height: 7px;
+  background: rgba(49, 54, 149, 0.38);
+}
+
+.heatmap-toggle-button:not(.is-active) .heatmap-toggle-icon::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 8px;
+  width: 18px;
+  height: 2px;
+  border-radius: 999px;
+  background: #1a3550;
+  transform: rotate(-45deg);
+}
+
 /* ── Crowd Drop Tool ── */
 .crowd-drop-control {
   position: absolute;
