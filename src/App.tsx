@@ -5,6 +5,7 @@ import type { LayerProps } from 'react-map-gl/maplibre';
 import type { MapLayerMouseEvent, MapRef, ViewStateChangeEvent } from 'react-map-gl/maplibre';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import './App.css';
+import { postPeople } from './heatmap/api.ts';
 import { useHeatmap } from './heatmap/stream.ts';
 import { heatmapLayer } from './heatmap/layer.ts';
 import {
@@ -24,7 +25,21 @@ import {
 } from './stops/layers.ts';
 import { DeckGLOverlay } from './DeckGLOverlay.tsx';
 import { ScenegraphLayer } from '@deck.gl/mesh-layers';
+import { AmbientLight, DirectionalLight, LightingEffect } from '@deck.gl/core';
 import { Mascot } from './Mascot.tsx';
+
+const ambientLight = new AmbientLight({
+  color: [255, 255, 255],
+  intensity: 10.0 // Supernova brightness
+});
+
+const blueLight = new DirectionalLight({
+  color: [255, 255, 255], // Pure white directional light
+  intensity: 5.0,
+  direction: [-1, -3, -1],
+});
+
+const lightingEffect = new LightingEffect({ ambientLight, blueLight });
 
 const initialViewState = {
   longitude: -122.3337,
@@ -580,11 +595,7 @@ function App() {
           const lat = lngLat.lat + r * Math.cos(theta);
           const lon = lngLat.lng + r * Math.sin(theta);
           
-          fetch('http://127.0.0.1:8000/api/people', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ lat, lon, count: peoplePerDrop })
-          }).catch(console.error);
+          postPeople(lat, lon, peoplePerDrop).catch(console.error);
         }
       }
     };
@@ -712,18 +723,26 @@ function App() {
           <Layer beforeId="watername_ocean" {...buildingFillLayer} />
         </Source>
 
-        <DeckGLOverlay interleaved={true} layers={[
-          new ScenegraphLayer({
-            id: 'space-needle-3d-v4',
-            data: [{ position: [-122.3493, 47.6205] }],
-            scenegraph: '/seattle/SPACE NEEDLE.glb',
-            getPosition: (d: any) => d.position,
-            getOrientation: [0, 0, 90],
-            getScale: [1, 1, 1],
-            sizeScale: 1.2, // Slightly larger to confirm update
-            _lighting: 'pbr' // Ensure proper shading
-          })
-        ]} />
+        <DeckGLOverlay 
+          interleaved={true} 
+          effects={[lightingEffect]}
+          layers={[
+            new ScenegraphLayer({
+              id: 'space-needle-3d-v5',
+              data: [{ position: [-122.3493, 47.6205] }],
+              scenegraph: '/seattle/SPACE NEEDLE.glb',
+              getPosition: (d: any) => d.position,
+              getOrientation: [0, 0, 90],
+              getScale: [1, 1, 1],
+              sizeScale: 1.2,
+              opacity: 0.6, // Ghostly glow mode
+              _lighting: 'pbr',
+              parameters: {
+                depthTest: true
+              }
+            })
+          ]} 
+        />
 
         <Source id="heatmap-source" type="geojson" data={heatmapData}>
           <Layer {...heatmapLayer} />

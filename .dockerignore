@@ -1,0 +1,10 @@
+.git
+.claude
+node_modules
+dist
+mock
+docs
+data_processing
+backend/tests
+seattle/scripts
+seattle/data/raw

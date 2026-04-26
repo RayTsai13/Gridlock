@@ -10,7 +10,7 @@ import {
   type PlacedPerson,
 } from './api.ts';
 
-const STREAM_URL = 'http://localhost:8000/api/heatmap/stream';
+const STREAM_URL = '/api/heatmap/stream';
 
 export type HeatmapApi = {
   geojson: FeatureCollection<Point>;

@@ -48,6 +48,23 @@ Build the frontend:
 npm run build
 ```
 
+## Docker
+
+The containerized stack includes only the production frontend and the GeoJSON-backed backend.
+It does not package development-only assets like `mock/`, docs, or data-processing scripts.
+
+Run the app with Docker Compose:
+
+```bash
+docker compose up --build
+```
+
+Then open:
+
+- `http://localhost:8080`
+
+The frontend is served by `nginx` and proxies `/api/*` to the FastAPI backend inside the compose network.
+
 ## Heatmap Servers
 
 Two implementations of the SSE contract live in this repo:

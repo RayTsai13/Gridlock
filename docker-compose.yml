@@ -1,0 +1,12 @@
+services:
+  frontend:
+    image: yourdockerhubuser/seattle-transit-sim-frontend:latest
+    build:
+      context: .
+      dockerfile: frontend.Dockerfile
+
+  backend:
+    image: yourdockerhubuser/seattle-transit-sim-backend:latest
+    build:
+      context: .
+      dockerfile: backend.Dockerfile
