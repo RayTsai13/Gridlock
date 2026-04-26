@@ -6,11 +6,32 @@ services:
       dockerfile: frontend.Dockerfile
     depends_on:
       - backend
-    ports:
-      - "8080:80"
+    expose:
+      - "80"
+    restart: unless-stopped
 
   backend:
     image: yourdockerhubuser/seattle-transit-sim-backend:latest
     build:
       context: .
       dockerfile: backend.Dockerfile
+    expose:
+      - "8000"
+    restart: unless-stopped
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - frontend
+
+volumes:
+  caddy_data:
+  caddy_config:
