@@ -29,7 +29,7 @@ class SimTime:
 def sim_time_for_tick(
     tick: int,
     *,
-    sim_step_seconds: int = 30,
+    sim_step_seconds: int = 1800,
     time_bin_minutes: int = 30,
 ) -> SimTime:
     """Map a monotonically increasing simulation tick to the repeating week."""
@@ -44,12 +44,17 @@ def sim_time_for_tick(
 
 @dataclass
 class SimulationClock:
-    sim_step_seconds: int = 30
+    sim_step_seconds: int = 1800
     time_bin_minutes: int = 30
     current_tick: int = 0
 
     def advance(self, steps: int = 1) -> SimTime:
         self.current_tick += max(1, steps)
+        return self.current_time
+
+    def seek(self, *, minute_of_week: int) -> SimTime:
+        seconds = (minute_of_week % MINUTES_PER_WEEK) * 60
+        self.current_tick = seconds // self.sim_step_seconds
         return self.current_time
 
     @property

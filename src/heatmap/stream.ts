@@ -5,8 +5,11 @@ import type { GridConfig, Frame } from './grid.ts';
 import {
   deleteAllPeople,
   deletePerson,
+  postPlayback,
   postPeople,
   postScenario,
+  seekPlayback,
+  type PlaybackState,
   type PlacedPerson,
 } from './api.ts';
 
@@ -16,8 +19,11 @@ export type HeatmapApi = {
   geojson: FeatureCollection<Point>;
   /** Last scenario_id confirmed by the server via a `scenario` event. */
   scenarioId: string | null;
+  playback: PlaybackState | null;
   diagnostics: HeatmapDiagnostics;
   setScenario: (id: string) => Promise<void>;
+  setPlaying: (isPlaying: boolean) => Promise<void>;
+  seekTo: (dayOfWeek: number, timeBin: number) => Promise<void>;
   addPeople: (lat: number, lon: number, count?: number) => Promise<PlacedPerson>;
   removePeople: (id: string) => Promise<void>;
   clearPeople: () => Promise<void>;
@@ -32,12 +38,14 @@ export type HeatmapDiagnostics = {
   featureCount: number;
   lastFrameAt: number | null;
   config: Pick<GridConfig, 'rows' | 'cols'> | null;
+  simTime: PlaybackState['sim_time'] | null;
   lastError: string | null;
 };
 
 export function useHeatmap(): HeatmapApi {
   const [geojson, setGeojson] = useState<FeatureCollection<Point>>(emptyGrid());
   const [scenarioId, setScenarioId] = useState<string | null>(null);
+  const [playback, setPlaybackState] = useState<PlaybackState | null>(null);
   const [diagnostics, setDiagnostics] = useState<HeatmapDiagnostics>({
     connection: 'connecting',
     pendingScenarioId: null,
@@ -47,6 +55,7 @@ export function useHeatmap(): HeatmapApi {
     featureCount: 0,
     lastFrameAt: null,
     config: null,
+    simTime: null,
     lastError: null,
   });
   const centroidsRef = useRef<Float64Array | null>(null);
@@ -89,6 +98,15 @@ export function useHeatmap(): HeatmapApi {
       }));
     });
 
+    source.addEventListener('playback', (e: MessageEvent) => {
+      const nextPlayback: PlaybackState = JSON.parse(e.data as string);
+      setPlaybackState(nextPlayback);
+      setDiagnostics((current) => ({
+        ...current,
+        simTime: nextPlayback.sim_time,
+      }));
+    });
+
     source.addEventListener('frame', (e: MessageEvent) => {
       if (!centroidsRef.current || !configRef.current) return;
       if (pendingScenarioRef.current !== null) return;
@@ -103,6 +121,7 @@ export function useHeatmap(): HeatmapApi {
         lastFrameCellCount: frame.cells.length,
         featureCount: nextGeojson.features.length,
         lastFrameAt: Date.now(),
+        simTime: frame.sim_time ?? current.simTime,
       }));
     });
 
@@ -148,6 +167,20 @@ export function useHeatmap(): HeatmapApi {
     }
   }, []);
 
+  const setPlaying = useCallback(async (isPlaying: boolean) => {
+    const nextPlayback = await postPlayback({ is_playing: isPlaying });
+    setPlaybackState(nextPlayback);
+  }, []);
+
+  const seekTo = useCallback(async (dayOfWeek: number, timeBin: number) => {
+    const nextPlayback = await seekPlayback(dayOfWeek, timeBin);
+    setPlaybackState(nextPlayback);
+    setDiagnostics((current) => ({
+      ...current,
+      simTime: nextPlayback.sim_time,
+    }));
+  }, []);
+
   const addPeople = useCallback(
     (lat: number, lon: number, count = 1) => postPeople(lat, lon, count),
     [],
@@ -155,5 +188,16 @@ export function useHeatmap(): HeatmapApi {
   const removePeople = useCallback((id: string) => deletePerson(id), []);
   const clearPeople = useCallback(() => deleteAllPeople(), []);
 
-  return { geojson, scenarioId, diagnostics, setScenario, addPeople, removePeople, clearPeople };
+  return {
+    geojson,
+    scenarioId,
+    playback,
+    diagnostics,
+    setScenario,
+    setPlaying,
+    seekTo,
+    addPeople,
+    removePeople,
+    clearPeople,
+  };
 }

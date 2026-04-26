@@ -63,6 +63,13 @@ class ScenarioStateManager:
     def records(self) -> list[ScenarioRecord]:
         return list(self._records)
 
+    def reset(self) -> None:
+        self.current_state_version = BASELINE_STATE_VERSION
+        self._state_counter = 0
+        self._records.clear()
+        self._records_by_id.clear()
+        self._records_by_state.clear()
+
     def register_precomputed_delta(
         self,
         *,

@@ -1,0 +1,7 @@
+sequence,station_id,station_name,lat,lon,hour,scheduled_trains
+1,ballard,Ballard,47.6677,-122.3765,8,8
+2,interbay,Interbay,47.6478,-122.3765,8,8
+3,smith-cove,Smith Cove,47.6378,-122.3635,8,8
+4,seattle-center,Seattle Center,47.6243,-122.3520,8,8
+5,south-lake-union,South Lake Union,47.6258,-122.3377,8,8
+6,denny,Denny,47.6188,-122.3405,8,8

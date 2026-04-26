@@ -95,8 +95,9 @@ def train_model(training: pd.DataFrame, test_size: float, random_state: int) -> 
         "line_feature_columns": LINE_FEATURE_COLUMNS,
         "note": (
             "Outputs are relative demand-pressure scores, not calibrated ridership. "
-            "Delhi passenger-per-train labels weakly tune the relationship between density, access, "
-            "connectivity, service, and demand."
+            "Delhi passenger-per-train labels weakly tune the relationship between density, "
+            "connectivity, service, land use, and demand. Direct station-proximity features are "
+            "excluded so new stations do not create demand only by being nearby."
         ),
     }
     return model, metrics
@@ -109,11 +110,11 @@ def numeric(df: pd.DataFrame, column: str) -> pd.Series:
 
 
 def access_raw(df: pd.DataFrame) -> pd.Series:
-    nearest_station_m = numeric(df, "nearest_station_distance_m")
+    """Access pressure without direct station-proximity terms."""
     return (
-        np.exp(-nearest_station_m / 800.0)
-        + 0.25 * numeric(df, "stations_within_500m")
-        + 0.10 * numeric(df, "stations_within_1000m")
+        0.45 * min_max(numeric(df, "distance_weighted_connectivity"))
+        + 0.35 * min_max(numeric(df, "scheduled_trains") + numeric(df, "line_service_weight"))
+        + 0.20 * min_max(numeric(df, "distance_weighted_transfer_score"))
     )
 
 
@@ -148,7 +149,7 @@ def score_components(df: pd.DataFrame, model_raw: pd.Series) -> pd.DataFrame:
     result["access_service_demand_score"] = min_max(access_service_raw(result))
     result["density_activity_demand_score"] = min_max(
         0.35 * numeric(result, "distance_weighted_residential_density")
-        + 0.25 * numeric(result, "distance_weighted_station_activity")
+        + 0.25 * numeric(result, "distance_weighted_connectivity")
         + 0.25 * numeric(result, "residential_temporal_demand")
         + 0.15 * numeric(result, "office_temporal_demand")
     )

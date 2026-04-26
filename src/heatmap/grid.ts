@@ -18,7 +18,15 @@ export type CellTuple = [row: number, col: number, density: number];
 
 export type Frame = {
   timestamp: number;
+  state_version?: string;
+  sim_time?: SimTime;
   cells: CellTuple[];
+};
+
+export type SimTime = {
+  day_of_week: number;
+  time_bin: number;
+  minute_of_week: number;
 };
 
 /**
