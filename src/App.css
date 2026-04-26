@@ -412,3 +412,163 @@
   outline: 2px solid rgba(var(--glass-text-rgb, 106, 166, 221), 0.5);
   outline-offset: 2px;
 }
+
+/* ── View Mode Button ── */
+.view-mode-button {
+  position: absolute;
+  top: 114px;
+  right: 10px;
+  width: 29px;
+  height: 29px;
+  background: var(--glass-bg, rgba(255, 255, 255, 0.8));
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  border-radius: 4px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.15);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  cursor: pointer;
+  z-index: 10;
+  transition: all 0.2s;
+  color: #1a3550;
+  font-family: 'Outfit', sans-serif;
+  font-weight: 700;
+  font-size: 0.75rem;
+}
+
+.view-mode-button:hover {
+  background: #ffffff;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+}
+
+/* ── Crowd Drop Tool ── */
+.crowd-drop-control {
+  position: absolute;
+  bottom: 32px;
+  left: 32px;
+  display: flex;
+  flex-direction: column-reverse;
+  align-items: flex-start;
+  gap: 8px;
+  z-index: 10;
+}
+
+.crowd-draggable-btn {
+  width: 48px;
+  height: 48px;
+  background: var(--glass-bg, rgba(255, 255, 255, 0.8));
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  border-radius: 12px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  cursor: grab;
+  transition: all 0.2s ease;
+  user-select: none;
+  touch-action: none;
+}
+
+.crowd-draggable-btn:hover {
+  background: #ffffff;
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.2);
+}
+
+.crowd-draggable-btn:active {
+  cursor: grabbing;
+  transform: scale(0.95);
+}
+
+.crowd-icon {
+  font-size: 1.8rem;
+  line-height: 1;
+}
+
+.crowd-slider-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  background: var(--glass-bg, rgba(255, 255, 255, 0.8));
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  padding: 8px 4px;
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+.crowd-slider {
+  writing-mode: vertical-lr;
+  direction: rtl;
+  width: 16px;
+  height: 100px;
+  cursor: pointer;
+  accent-color: #6aa6dd;
+}
+
+.crowd-size-label {
+  font-family: 'Outfit', sans-serif;
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: #1a3550;
+  margin-top: 4px;
+}
+
+/* ── Dragging Reticle ── */
+.crowd-drop-reticle {
+  position: fixed;
+  z-index: 9999;
+  pointer-events: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  transform: translate(-50%, -50%);
+}
+
+.reticle-crosshair {
+  width: 40px;
+  height: 40px;
+  border: 2px dashed rgba(250, 60, 60, 0.8);
+  border-radius: 50%;
+  position: relative;
+  animation: reticle-spin 4s linear infinite;
+}
+
+.reticle-crosshair::before,
+.reticle-crosshair::after {
+  content: '';
+  position: absolute;
+  background: rgba(250, 60, 60, 0.8);
+}
+
+.reticle-crosshair::before {
+  top: 50%; left: -5px; right: -5px; height: 2px;
+  transform: translateY(-50%);
+}
+
+.reticle-crosshair::after {
+  left: 50%; top: -5px; bottom: -5px; width: 2px;
+  transform: translateX(-50%);
+}
+
+.reticle-label {
+  margin-top: 8px;
+  background: rgba(255, 255, 255, 0.9);
+  color: #c92a2a;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-family: 'Outfit', sans-serif;
+  font-weight: 700;
+  font-size: 0.75rem;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.15);
+}
+
+@keyframes reticle-spin {
+  100% { transform: rotate(360deg); }
+}

@@ -1,0 +1,123 @@
+.transit-mascot {
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  filter: drop-shadow(0 4px 6px rgba(0,0,0,0.1));
+}
+
+/* ── IDLE ANIMATIONS ── */
+.transit-mascot.is-idle .upper-body {
+  animation: breathe 2s infinite alternate ease-in-out;
+  transform-origin: 50px 95px;
+}
+
+.transit-mascot.is-idle .shadow {
+  animation: shadow-breathe 2s infinite alternate ease-in-out;
+  transform-origin: 50px 115px;
+}
+
+.transit-mascot.is-idle .left-arm {
+  animation: idle-arm-left 3s infinite alternate ease-in-out;
+  transform-origin: 25px 65px;
+}
+
+.transit-mascot.is-idle .right-arm {
+  animation: idle-arm-right 3.2s infinite alternate ease-in-out;
+  transform-origin: 75px 65px;
+}
+
+/* ── STRUGGLE ANIMATIONS (DRAGGING) ── */
+.transit-mascot.is-dragging {
+  animation: dangle-swing 0.6s infinite alternate ease-in-out;
+  transform-origin: 50px 20px; /* Swing from the "collar" */
+}
+
+.transit-mascot.is-dragging .upper-body {
+  animation: panic-stretch 0.15s infinite alternate ease-in-out;
+  transform-origin: 50px 30px;
+}
+
+.transit-mascot.is-dragging .left-arm {
+  animation: flail-left 0.15s infinite alternate ease-in-out;
+  transform-origin: 25px 65px;
+}
+
+.transit-mascot.is-dragging .right-arm {
+  animation: flail-right 0.18s infinite alternate ease-in-out;
+  transform-origin: 75px 65px;
+}
+
+.transit-mascot.is-dragging .left-leg {
+  animation: kick-left 0.2s infinite alternate ease-in-out;
+  transform-origin: 35px 90px;
+}
+
+.transit-mascot.is-dragging .right-leg {
+  animation: kick-right 0.22s infinite alternate ease-in-out;
+  transform-origin: 65px 90px;
+}
+
+.transit-mascot.is-dragging .eye {
+  animation: panic-eyes 0.1s infinite alternate;
+}
+
+.transit-mascot.is-dragging .shadow {
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+
+/* ── KEYFRAMES ── */
+@keyframes breathe {
+  0% { transform: scaleY(0.98) scaleX(1.02); }
+  100% { transform: scaleY(1.02) scaleX(0.98); }
+}
+
+@keyframes shadow-breathe {
+  0% { transform: scale(1.05); opacity: 0.2; }
+  100% { transform: scale(0.95); opacity: 0.1; }
+}
+
+@keyframes idle-arm-left {
+  0% { transform: rotate(-5deg); }
+  100% { transform: rotate(10deg); }
+}
+
+@keyframes idle-arm-right {
+  0% { transform: rotate(5deg); }
+  100% { transform: rotate(-10deg); }
+}
+
+@keyframes dangle-swing {
+  0% { transform: rotate(-10deg); }
+  100% { transform: rotate(10deg); }
+}
+
+@keyframes panic-stretch {
+  0% { transform: scaleY(1.05) scaleX(0.95); }
+  100% { transform: scaleY(1.1) scaleX(0.9); }
+}
+
+@keyframes flail-left {
+  0% { transform: rotate(-20deg) scale(1.1); }
+  100% { transform: rotate(130deg) scale(1.1); }
+}
+
+@keyframes flail-right {
+  0% { transform: rotate(20deg) scale(1.1); }
+  100% { transform: rotate(-130deg) scale(1.1); }
+}
+
+@keyframes kick-left {
+  0% { transform: rotate(-20deg); }
+  100% { transform: rotate(60deg); }
+}
+
+@keyframes kick-right {
+  0% { transform: rotate(20deg); }
+  100% { transform: rotate(-60deg); }
+}
+
+@keyframes panic-eyes {
+  0% { transform: translateY(0px) scale(1.2); fill: #EF4444; }
+  100% { transform: translateY(2px) scale(1.4); fill: #F87171; }
+}

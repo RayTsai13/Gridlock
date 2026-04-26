@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState, useRef } from 'react';
 import { Layer, Map, NavigationControl, Source, Marker } from 'react-map-gl/maplibre';
 import type { FeatureCollection, Geometry, Point } from 'geojson';
 import type { LayerProps } from 'react-map-gl/maplibre';
-import type { MapLayerMouseEvent, MapRef } from 'react-map-gl/maplibre';
+import type { MapLayerMouseEvent, MapRef, ViewStateChangeEvent } from 'react-map-gl/maplibre';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import './App.css';
 import { useHeatmap } from './heatmap/stream.ts';
@@ -22,6 +22,9 @@ import {
   deployPulseRingLayer,
   deployGlowDotLayer,
 } from './stops/layers.ts';
+import { DeckGLOverlay } from './DeckGLOverlay.tsx';
+import { ScenegraphLayer } from '@deck.gl/mesh-layers';
+import { Mascot } from './Mascot.tsx';
 
 const initialViewState = {
   longitude: -122.3337,
@@ -235,7 +238,6 @@ function App() {
     REGION_LOAD_ORDER.slice(1) as unknown as string[],
   );
   const [activeRegionId, setActiveRegionId] = useState<string | null>(REGION_LOAD_ORDER[0]);
-  const [buildingsError, setBuildingsError] = useState<string | null>(null);
   const [regionErrors, setRegionErrors] = useState<Record<string, string>>({});
 
   useEffect(() => {
@@ -254,6 +256,16 @@ function App() {
   const [isDraggingDial, setIsDraggingDial] = useState(false);
   const mapRef = useRef<MapRef | null>(null);
   const [offscreenArrow, setOffscreenArrow] = useState<{ x: number; y: number; angle: number } | null>(null);
+
+  // View mode controls
+  const [viewMode, setViewMode] = useState<'top-down' | 'angled'>('angled');
+  const [isPitchLocked, setIsPitchLocked] = useState(false);
+  const isAnimatingView = useRef(false);
+
+  // Crowd drop controls
+  const [crowdSize, setCrowdSize] = useState<number>(5000);
+  const [isDraggingCrowd, setIsDraggingCrowd] = useState(false);
+  const [crowdDragPos, setCrowdDragPos] = useState<{x: number, y: number} | null>(null);
 
   // ── Compute active stops/lines from deployed steps ──
   const { activeStops, activeLines } = useMemo(() => {
@@ -331,7 +343,6 @@ function App() {
     }
 
     const controller = new AbortController();
-    setBuildingsError(null);
     setRegionErrors((current) => {
       const next = { ...current };
       delete next[activeRegionId];
@@ -353,7 +364,6 @@ function App() {
       .catch((error: unknown) => {
         if (!(error instanceof DOMException && error.name === 'AbortError')) {
           console.error(error);
-          setBuildingsError(`Could not load ${region.label}.`);
           setRegionErrors((current) => ({
             ...current,
             [region.id]: 'Error',
@@ -417,30 +427,84 @@ function App() {
     const h = container.clientHeight;
     const MARGIN = 60;
 
-    // If on screen, no arrow needed
-    if (projected.x >= MARGIN && projected.x <= w - MARGIN &&
+    const isWithinBounds = map.getBounds().contains(triggerCoords as [number, number]);
+
+    // If on screen mathematically and geographically, no arrow needed
+    if (isWithinBounds &&
+        projected.x >= MARGIN && projected.x <= w - MARGIN &&
         projected.y >= MARGIN && projected.y <= h - MARGIN) {
       setOffscreenArrow(null);
       return;
     }
 
-    // Clamp to screen edge with padding
     const cx = w / 2;
     const cy = h / 2;
-    const dx = projected.x - cx;
-    const dy = projected.y - cy;
-    const angle = Math.atan2(dy, dx);
+
+    // Calculate geographic bearing to prevent projection inversion behind camera
+    const center = map.getCenter();
+    const dLon = triggerCoords[0] - center.lng;
+    const dLat = triggerCoords[1] - center.lat;
+    const dxGeo = dLon * Math.cos((center.lat * Math.PI) / 180);
+    const dyGeo = dLat;
+    
+    // Geographical angle where North is 0, East is 90
+    const geoBearing = (Math.atan2(dxGeo, dyGeo) * 180) / Math.PI;
+    
+    // Screen angle: map bearing offsets geographical bearing. 
+    // Screen X/Y: 0 degrees is right, 90 is down.
+    const screenAngleDeg = geoBearing - map.getBearing() - 90;
+    const angle = (screenAngleDeg * Math.PI) / 180;
+    
     const PAD = 48;
+    const cos = Math.cos(angle);
+    const sin = Math.sin(angle);
+    
+    // Intersect ray from center with padded screen edges
+    const tRight = cos > 0 ? (w / 2 - PAD) / cos : Infinity;
+    const tLeft = cos < 0 ? -(w / 2 - PAD) / cos : Infinity;
+    const tBottom = sin > 0 ? (h / 2 - PAD) / sin : Infinity;
+    const tTop = sin < 0 ? -(h / 2 - PAD) / sin : Infinity;
+    
+    const t = Math.min(tRight, tLeft, tBottom, tTop);
+    
+    const edgeX = cx + t * cos;
+    const edgeY = cy + t * sin;
 
-    const edgeX = Math.max(PAD, Math.min(w - PAD, cx + Math.cos(angle) * (w / 2 - PAD)));
-    const edgeY = Math.max(PAD, Math.min(h - PAD, cy + Math.sin(angle) * (h / 2 - PAD)));
-
-    setOffscreenArrow({ x: edgeX, y: edgeY, angle: angle * (180 / Math.PI) });
+    setOffscreenArrow({ x: edgeX, y: edgeY, angle: screenAngleDeg });
   }, [triggerCoords]);
 
   useEffect(() => {
     updateOffscreenArrow();
   }, [updateOffscreenArrow]);
+
+  const handleMapMove = useCallback((e: ViewStateChangeEvent) => {
+    updateOffscreenArrow();
+    const p = e.viewState.pitch;
+
+    if (viewMode === 'angled' && p < 5 && !isAnimatingView.current) {
+      setViewMode('top-down');
+      mapRef.current?.easeTo({ pitch: 0, duration: 800 });
+    } else if (viewMode === 'top-down' && p < 0.5 && !isPitchLocked) {
+      setIsPitchLocked(true);
+    }
+  }, [updateOffscreenArrow, viewMode, isPitchLocked]);
+
+  const handleToggleView = () => {
+    if (viewMode === 'angled') {
+      setViewMode('top-down');
+      mapRef.current?.easeTo({ pitch: 0, duration: 1000 });
+    } else {
+      setIsPitchLocked(false);
+      setViewMode('angled');
+      isAnimatingView.current = true;
+      setTimeout(() => {
+        mapRef.current?.easeTo({ pitch: 55, duration: 1000 });
+        setTimeout(() => {
+          isAnimatingView.current = false;
+        }, 1100);
+      }, 50);
+    }
+  };
 
   // ── Map click handler — deploy on trigger click ──
   const handleMapClick = useCallback(
@@ -488,6 +552,51 @@ function App() {
       window.removeEventListener('pointerup', handlePointerUp);
     };
   }, [isDraggingDial]);
+
+  // ── Crowd Drop Pointer Events ──
+  useEffect(() => {
+    if (!isDraggingCrowd) return;
+
+    const handlePointerMove = (e: PointerEvent) => {
+      setCrowdDragPos({ x: e.clientX, y: e.clientY });
+    };
+
+    const handlePointerUp = (e: PointerEvent) => {
+      setIsDraggingCrowd(false);
+      setCrowdDragPos(null);
+
+      if (mapRef.current) {
+        const dropPoint = [e.clientX, e.clientY] as [number, number];
+        const lngLat = mapRef.current.unproject(dropPoint);
+        
+        // Scatter the crowd into ~12 distinct clusters within a ~150m radius
+        // 0.0015 degrees lat/lon is roughly 150m.
+        const drops = 12;
+        const peoplePerDrop = Math.floor(crowdSize / drops);
+        
+        for (let i = 0; i < drops; i++) {
+          const r = Math.random() * 0.0015;
+          const theta = Math.random() * 2 * Math.PI;
+          const lat = lngLat.lat + r * Math.cos(theta);
+          const lon = lngLat.lng + r * Math.sin(theta);
+          
+          fetch('http://127.0.0.1:8000/api/people', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ lat, lon, count: peoplePerDrop })
+          }).catch(console.error);
+        }
+      }
+    };
+
+    window.addEventListener('pointermove', handlePointerMove);
+    window.addEventListener('pointerup', handlePointerUp);
+    
+    return () => {
+      window.removeEventListener('pointermove', handlePointerMove);
+      window.removeEventListener('pointerup', handlePointerUp);
+    };
+  }, [isDraggingCrowd, crowdSize]);
 
   useEffect(() => {
     if (!isPlaying) return;
@@ -557,17 +666,64 @@ function App() {
         mapStyle="https://basemaps.cartocdn.com/gl/positron-gl-style/style.json"
         style={{ width: '100vw', height: '100vh' }}
         onClick={handleMapClick}
-        onMove={updateOffscreenArrow}
+        onMove={handleMapMove}
         onLoad={(event) => updateBuildingsForViewport(event.target as unknown as MapRef)}
         onMoveEnd={(event) => updateBuildingsForViewport(event.target as unknown as MapRef)}
         interactiveLayerIds={interactiveLayerIds}
         cursor={nextStep ? 'pointer' : undefined}
+        maxPitch={isPitchLocked ? 0 : 85}
       >
         <NavigationControl position="top-right" />
+
+        <button 
+          className="view-mode-button"
+          onClick={handleToggleView}
+          title={viewMode === 'angled' ? 'Switch to Top-Down View' : 'Switch to Angled View'}
+        >
+          {viewMode === 'angled' ? '2D' : '3D'}
+        </button>
+
+        <div className="crowd-drop-control">
+          <button 
+            className="crowd-draggable-btn"
+            onPointerDown={(e) => {
+              setIsDraggingCrowd(true);
+              setCrowdDragPos({ x: e.clientX, y: e.clientY });
+            }}
+            title="Drag to spawn crowd"
+          >
+            <Mascot isDragging={isDraggingCrowd} className="crowd-icon" />
+          </button>
+          <div className="crowd-slider-container">
+            <input 
+              type="range" 
+              min="1000" 
+              max="30000" 
+              step="1000" 
+              value={crowdSize} 
+              onChange={(e) => setCrowdSize(parseInt(e.target.value))}
+              className="crowd-slider"
+            />
+            <span className="crowd-size-label">{crowdSize / 1000}k</span>
+          </div>
+        </div>
 
         <Source id="official-seattle-buildings" type="geojson" data={buildings}>
           <Layer beforeId="watername_ocean" {...buildingFillLayer} />
         </Source>
+
+        <DeckGLOverlay interleaved={true} layers={[
+          new ScenegraphLayer({
+            id: 'space-needle-3d',
+            data: [{ position: [-122.3493, 47.6205] }],
+            scenegraph: '/seattle/space_needle.glb',
+            getPosition: (d: any) => d.position,
+            getOrientation: [90, 0, 0], // Rotate 90 degrees on X-axis to stand up
+            getScale: [1, 1, 1],
+            sizeScale: 1, // Trimesh export matches MapLibre 1:1 meters mostly
+            _lighting: 'pbr' // Ensure proper shading
+          })
+        ]} />
 
         <Source id="heatmap-source" type="geojson" data={heatmapData}>
           <Layer {...heatmapLayer} />
@@ -620,6 +776,24 @@ function App() {
           <span className="offscreen-arrow-chevron">›</span>
         </div>
       )}
+
+      {/* Dragging Reticle */}
+      {isDraggingCrowd && crowdDragPos && (
+        <div 
+          className="crowd-drop-reticle"
+          style={{
+            left: `${crowdDragPos.x}px`,
+            top: `${crowdDragPos.y}px`,
+          }}
+        >
+          <div style={{ width: 80, height: 80, marginBottom: 8, pointerEvents: 'none' }}>
+            <Mascot isDragging={true} />
+          </div>
+          <div className="reticle-label">Drop {crowdSize / 1000}k</div>
+        </div>
+      )}
+
+      {/* Temporary Mascot Preview Overlay removed */}
 
       <div className="time-controls-wrapper">
         {WEEKDAYS.map((dayLabel, index) => {
