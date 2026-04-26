@@ -1,0 +1,23 @@
+
+====== 40 ======
+Below is a list of the changes included in the SC-Spring-2026.6 release of Sound Transit GTFS data.
+
+Schedule Changes
+* 1 & 2 Lines:
+  * April 25-26:
+    * all weekend rail closure on 1 Line between Rainier Beach and SeaTac with bus shuttle replacement
+    * morning closure on 2 Line between Spring District and Overlake Village with bus shuttle replacement
+  * April 28-30: late night 2 Line rail closure between South Bellevue and Overlake Village with bus shuttle replacement
+  * May 2: morning closure on 2 Line between Spring District and Overlake Village with bus shuttle replacement
+  * May 9-10: all weekend rail closure on 1 Line between Rainier Beach and SeaTac with bus shuttle replacement
+  * June and July: additional service on FIFA match days
+  * June 28: additional service for Pride
+
+Route Changes
+* none
+
+Stop Changes
+* new stops for 1 Line and 2 Line shuttles
+
+Other Changes
+* none

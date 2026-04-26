@@ -1,19 +1,25 @@
-import { useCallback, useEffect, useMemo, useState, useRef } from 'react';
-import { Layer, Map, NavigationControl, Source, Marker } from 'react-map-gl/maplibre';
-import type { FeatureCollection, Geometry, Point } from 'geojson';
-import type { LayerProps } from 'react-map-gl/maplibre';
-import type { MapLayerMouseEvent, MapRef, ViewStateChangeEvent } from 'react-map-gl/maplibre';
-import 'maplibre-gl/dist/maplibre-gl.css';
-import './App.css';
-import { postPeople } from './heatmap/api.ts';
-import { useHeatmap } from './heatmap/stream.ts';
-import { heatmapLayer } from './heatmap/layer.ts';
+import { useCallback, useEffect, useMemo, useState, useRef } from "react";
 import {
-  DEPLOY_STEPS,
-  stopsToGeoJSON,
-  linesToGeoJSON,
-} from './stops/data.ts';
-import type { TransitStop, TransitLine } from './stops/data.ts';
+  Layer,
+  Map,
+  NavigationControl,
+  Source,
+  Marker,
+} from "react-map-gl/maplibre";
+import type { FeatureCollection, Geometry, Point } from "geojson";
+import type { LayerProps } from "react-map-gl/maplibre";
+import type {
+  MapLayerMouseEvent,
+  MapRef,
+  ViewStateChangeEvent,
+} from "react-map-gl/maplibre";
+import "maplibre-gl/dist/maplibre-gl.css";
+import "./App.css";
+import { postPeople } from "./heatmap/api.ts";
+import { useHeatmap } from "./heatmap/stream.ts";
+import { heatmapLayer } from "./heatmap/layer.ts";
+import { DEPLOY_STEPS, stopsToGeoJSON, linesToGeoJSON } from "./stops/data.ts";
+import type { TransitStop, TransitLine } from "./stops/data.ts";
 import {
   lineCasingLayer,
   lineRouteLayer,
@@ -22,15 +28,15 @@ import {
   stopLabelLayer,
   deployPulseRingLayer,
   deployGlowDotLayer,
-} from './stops/layers.ts';
-import { DeckGLOverlay } from './DeckGLOverlay.tsx';
-import { ScenegraphLayer } from '@deck.gl/mesh-layers';
-import { AmbientLight, DirectionalLight, LightingEffect } from '@deck.gl/core';
-import { Mascot } from './Mascot.tsx';
+} from "./stops/layers.ts";
+import { DeckGLOverlay } from "./DeckGLOverlay.tsx";
+import { ScenegraphLayer } from "@deck.gl/mesh-layers";
+import { AmbientLight, DirectionalLight, LightingEffect } from "@deck.gl/core";
+import { Mascot } from "./Mascot.tsx";
 
 const ambientLight = new AmbientLight({
   color: [255, 255, 255],
-  intensity: 10.0 // Supernova brightness
+  intensity: 10.0, // Supernova brightness
 });
 
 const blueLight = new DirectionalLight({
@@ -50,7 +56,7 @@ const initialViewState = {
 };
 
 const emptyFeatureCollection: FeatureCollection<Geometry> = {
-  type: 'FeatureCollection',
+  type: "FeatureCollection",
   features: [],
 };
 
@@ -70,9 +76,9 @@ type BuildingRegion = {
 
 const BUILDING_REGIONS: BuildingRegion[] = [
   {
-    id: 'downtown-core',
-    label: 'Downtown Core',
-    url: '/seattle/seattle-buildings-downtown-core.geojson',
+    id: "downtown-core",
+    label: "Downtown Core",
+    url: "/seattle/seattle-buildings-downtown-core.geojson",
     bounds: {
       west: -122.37,
       south: 47.585,
@@ -81,9 +87,9 @@ const BUILDING_REGIONS: BuildingRegion[] = [
     },
   },
   {
-    id: 'east-neighborhoods',
-    label: 'East Neighborhoods',
-    url: '/seattle/seattle-buildings-east-neighborhoods.geojson',
+    id: "east-neighborhoods",
+    label: "East Neighborhoods",
+    url: "/seattle/seattle-buildings-east-neighborhoods.geojson",
     bounds: {
       west: -122.32,
       south: 47.585,
@@ -92,9 +98,9 @@ const BUILDING_REGIONS: BuildingRegion[] = [
     },
   },
   {
-    id: 'northwest-seattle',
-    label: 'Northwest Seattle',
-    url: '/seattle/seattle-buildings-northwest-seattle.geojson',
+    id: "northwest-seattle",
+    label: "Northwest Seattle",
+    url: "/seattle/seattle-buildings-northwest-seattle.geojson",
     bounds: {
       west: -122.43,
       south: 47.6205,
@@ -103,9 +109,9 @@ const BUILDING_REGIONS: BuildingRegion[] = [
     },
   },
   {
-    id: 'west-seattle',
-    label: 'West Seattle',
-    url: '/seattle/seattle-buildings-west-seattle.geojson',
+    id: "west-seattle",
+    label: "West Seattle",
+    url: "/seattle/seattle-buildings-west-seattle.geojson",
     bounds: {
       west: -122.432,
       south: 47.543,
@@ -114,9 +120,9 @@ const BUILDING_REGIONS: BuildingRegion[] = [
     },
   },
   {
-    id: 'beacon-hill',
-    label: 'Beacon Hill',
-    url: '/seattle/seattle-buildings-beacon-hill.geojson',
+    id: "beacon-hill",
+    label: "Beacon Hill",
+    url: "/seattle/seattle-buildings-beacon-hill.geojson",
     bounds: {
       west: -122.3365,
       south: 47.55,
@@ -127,38 +133,40 @@ const BUILDING_REGIONS: BuildingRegion[] = [
 ];
 
 const REGION_LOAD_ORDER = [
-  'downtown-core',
-  'east-neighborhoods',
-  'northwest-seattle',
-  'beacon-hill',
-  'west-seattle',
+  "downtown-core",
+  "east-neighborhoods",
+  "northwest-seattle",
+  "beacon-hill",
+  "west-seattle",
 ] as const;
 
 const REGION_PRIORITY = new globalThis.Map<string, number>(
-  REGION_LOAD_ORDER.map((regionId, index) => [regionId, index] as [string, number]),
+  REGION_LOAD_ORDER.map(
+    (regionId, index) => [regionId, index] as [string, number],
+  ),
 );
 
 const buildingFillLayer: LayerProps = {
-  id: 'official-seattle-buildings-fill',
-  type: 'fill-extrusion',
+  id: "official-seattle-buildings-fill",
+  type: "fill-extrusion",
   paint: {
-    'fill-extrusion-color': [
-      'interpolate',
-      ['linear'],
-      ['get', 'height_m'],
+    "fill-extrusion-color": [
+      "interpolate",
+      ["linear"],
+      ["get", "height_m"],
       3,
-      '#cfe6ff',
+      "#cfe6ff",
       15,
-      '#b7d8fb',
+      "#b7d8fb",
       40,
-      '#97c5f6',
+      "#97c5f6",
       120,
-      '#79afe6',
+      "#79afe6",
     ],
-    'fill-extrusion-height': ['coalesce', ['get', 'height_m'], 0],
-    'fill-extrusion-base': 0,
-    'fill-extrusion-opacity': 0.85,
-    'fill-extrusion-vertical-gradient': true,
+    "fill-extrusion-height": ["coalesce", ["get", "height_m"], 0],
+    "fill-extrusion-base": 0,
+    "fill-extrusion-opacity": 0.85,
+    "fill-extrusion-vertical-gradient": true,
   },
 };
 
@@ -213,11 +221,9 @@ function intersectsBounds(a: Bounds, b: Bounds) {
   );
 }
 
-function mergeFeatureCollections(
-  collections: FeatureCollection<Geometry>[],
-) {
+function mergeFeatureCollections(collections: FeatureCollection<Geometry>[]) {
   return {
-    type: 'FeatureCollection',
+    type: "FeatureCollection",
     features: collections.flatMap((collection) => collection.features),
   } satisfies FeatureCollection<Geometry>;
 }
@@ -225,8 +231,8 @@ function mergeFeatureCollections(
 function sortRegionIds(regionIds: string[]) {
   return [...new Set(regionIds)].sort(
     (left, right) =>
-      (REGION_PRIORITY.get(left) ?? Number.MAX_SAFE_INTEGER)
-      - (REGION_PRIORITY.get(right) ?? Number.MAX_SAFE_INTEGER),
+      (REGION_PRIORITY.get(left) ?? Number.MAX_SAFE_INTEGER) -
+      (REGION_PRIORITY.get(right) ?? Number.MAX_SAFE_INTEGER),
   );
 }
 
@@ -238,26 +244,38 @@ const initialBounds = {
 };
 
 function App() {
-  const { geojson: heatmapData, setScenario } = useHeatmap();
+  const {
+    geojson: heatmapData,
+    setScenario,
+    diagnostics: heatmapDiagnostics,
+  } = useHeatmap();
+  const showHeatmapDebug = useMemo(
+    () => new URLSearchParams(window.location.search).has("debugHeatmap"),
+    [],
+  );
 
   // Deploy state: index of the highest deployed step (0 = Line 1 only)
   const [deployedIndex, setDeployedIndex] = useState(0);
 
   // Building state
-  const [regionCollections, setRegionCollections] =
-    useState<Record<string, FeatureCollection<Geometry>>>({});
-  const [buildings, setBuildings] =
-    useState<FeatureCollection<Geometry>>(emptyFeatureCollection);
+  const [regionCollections, setRegionCollections] = useState<
+    Record<string, FeatureCollection<Geometry>>
+  >({});
+  const [buildings, setBuildings] = useState<FeatureCollection<Geometry>>(
+    emptyFeatureCollection,
+  );
   const [queryBounds, setQueryBounds] = useState(initialBounds);
   const [queuedRegionIds, setQueuedRegionIds] = useState<string[]>(
     REGION_LOAD_ORDER.slice(1) as unknown as string[],
   );
-  const [activeRegionId, setActiveRegionId] = useState<string | null>(REGION_LOAD_ORDER[0]);
+  const [activeRegionId, setActiveRegionId] = useState<string | null>(
+    REGION_LOAD_ORDER[0],
+  );
   const [regionErrors, setRegionErrors] = useState<Record<string, string>>({});
 
   useEffect(() => {
     setScenario(DEPLOY_STEPS[deployedIndex].id).catch((err) => {
-      console.warn('[heatmap] failed to set scenario', err);
+      console.warn("[heatmap] failed to set scenario", err);
     });
   }, [deployedIndex, setScenario]);
 
@@ -270,17 +288,24 @@ function App() {
   const dialRef = useRef<HTMLDivElement>(null);
   const [isDraggingDial, setIsDraggingDial] = useState(false);
   const mapRef = useRef<MapRef | null>(null);
-  const [offscreenArrow, setOffscreenArrow] = useState<{ x: number; y: number; angle: number } | null>(null);
+  const [offscreenArrow, setOffscreenArrow] = useState<{
+    x: number;
+    y: number;
+    angle: number;
+  } | null>(null);
 
   // View mode controls
-  const [viewMode, setViewMode] = useState<'top-down' | 'angled'>('angled');
+  const [viewMode, setViewMode] = useState<"top-down" | "angled">("angled");
   const [isPitchLocked, setIsPitchLocked] = useState(false);
   const isAnimatingView = useRef(false);
 
   // Crowd drop controls
   const [crowdSize, setCrowdSize] = useState<number>(5000);
   const [isDraggingCrowd, setIsDraggingCrowd] = useState(false);
-  const [crowdDragPos, setCrowdDragPos] = useState<{x: number, y: number} | null>(null);
+  const [crowdDragPos, setCrowdDragPos] = useState<{
+    x: number;
+    y: number;
+  } | null>(null);
 
   // ── Compute active stops/lines from deployed steps ──
   const { activeStops, activeLines } = useMemo(() => {
@@ -301,8 +326,14 @@ function App() {
     return { activeStops: stops, activeLines: lines };
   }, [deployedIndex]);
 
-  const stopsGeoJSON = useMemo(() => stopsToGeoJSON(activeStops), [activeStops]);
-  const linesGeoJSON = useMemo(() => linesToGeoJSON(activeLines, activeStops), [activeLines, activeStops]);
+  const stopsGeoJSON = useMemo(
+    () => stopsToGeoJSON(activeStops),
+    [activeStops],
+  );
+  const linesGeoJSON = useMemo(
+    () => linesToGeoJSON(activeLines, activeStops),
+    [activeLines, activeStops],
+  );
 
   // ── Building loading effects ──
   useEffect(() => {
@@ -311,26 +342,26 @@ function App() {
 
   useEffect(() => {
     const loadedRegionIds = Object.keys(regionCollections);
-    const inViewRegionIds = BUILDING_REGIONS
-      .filter((region) => intersectsBounds(region.bounds, queryBounds))
-      .map((region) => region.id);
+    const inViewRegionIds = BUILDING_REGIONS.filter((region) =>
+      intersectsBounds(region.bounds, queryBounds),
+    ).map((region) => region.id);
     const pendingRegionIds = sortRegionIds([
       ...inViewRegionIds,
       ...REGION_LOAD_ORDER,
     ]).filter(
       (regionId) =>
-        !loadedRegionIds.includes(regionId)
-        && regionId !== activeRegionId
-        && !regionErrors[regionId],
+        !loadedRegionIds.includes(regionId) &&
+        regionId !== activeRegionId &&
+        !regionErrors[regionId],
     );
 
     setQueuedRegionIds((current) =>
       sortRegionIds([
         ...current.filter(
           (regionId) =>
-            !loadedRegionIds.includes(regionId)
-            && regionId !== activeRegionId
-            && !regionErrors[regionId],
+            !loadedRegionIds.includes(regionId) &&
+            regionId !== activeRegionId &&
+            !regionErrors[regionId],
         ),
         ...pendingRegionIds,
       ]),
@@ -351,7 +382,9 @@ function App() {
       return undefined;
     }
 
-    const region = BUILDING_REGIONS.find((candidate) => candidate.id === activeRegionId);
+    const region = BUILDING_REGIONS.find(
+      (candidate) => candidate.id === activeRegionId,
+    );
     if (!region) {
       setActiveRegionId(null);
       return undefined;
@@ -377,16 +410,18 @@ function App() {
         });
       })
       .catch((error: unknown) => {
-        if (!(error instanceof DOMException && error.name === 'AbortError')) {
+        if (!(error instanceof DOMException && error.name === "AbortError")) {
           console.error(error);
           setRegionErrors((current) => ({
             ...current,
-            [region.id]: 'Error',
+            [region.id]: "Error",
           }));
         }
       })
       .finally(() => {
-        setActiveRegionId((current) => (current === region.id ? null : current));
+        setActiveRegionId((current) =>
+          current === region.id ? null : current,
+        );
       });
 
     return () => {
@@ -401,9 +436,10 @@ function App() {
     );
   }
 
-  const nextStep = deployedIndex < DEPLOY_STEPS.length - 1
-    ? DEPLOY_STEPS[deployedIndex + 1]
-    : null;
+  const nextStep =
+    deployedIndex < DEPLOY_STEPS.length - 1
+      ? DEPLOY_STEPS[deployedIndex + 1]
+      : null;
 
   // Resolve trigger coordinates: use custom coords if provided, else fall back to station
   const triggerCoords = useMemo<[number, number] | null>(() => {
@@ -418,14 +454,19 @@ function App() {
 
   // Trigger GeoJSON for the pulsing indicator
   const triggerGeoJSON = useMemo<FeatureCollection<Point>>(() => {
-    if (!triggerCoords) return { type: 'FeatureCollection', features: [] };
+    if (!triggerCoords) return { type: "FeatureCollection", features: [] };
     return {
-      type: 'FeatureCollection',
-      features: [{
-        type: 'Feature',
-        geometry: { type: 'Point', coordinates: triggerCoords },
-        properties: { id: nextStep?.triggerStopId ?? 'deploy', name: nextStep?.label ?? '' },
-      }],
+      type: "FeatureCollection",
+      features: [
+        {
+          type: "Feature",
+          geometry: { type: "Point", coordinates: triggerCoords },
+          properties: {
+            id: nextStep?.triggerStopId ?? "deploy",
+            name: nextStep?.label ?? "",
+          },
+        },
+      ],
     };
   }, [triggerCoords, nextStep]);
 
@@ -442,12 +483,18 @@ function App() {
     const h = container.clientHeight;
     const MARGIN = 60;
 
-    const isWithinBounds = map.getBounds().contains(triggerCoords as [number, number]);
+    const isWithinBounds = map
+      .getBounds()
+      .contains(triggerCoords as [number, number]);
 
     // If on screen mathematically and geographically, no arrow needed
-    if (isWithinBounds &&
-        projected.x >= MARGIN && projected.x <= w - MARGIN &&
-        projected.y >= MARGIN && projected.y <= h - MARGIN) {
+    if (
+      isWithinBounds &&
+      projected.x >= MARGIN &&
+      projected.x <= w - MARGIN &&
+      projected.y >= MARGIN &&
+      projected.y <= h - MARGIN
+    ) {
       setOffscreenArrow(null);
       return;
     }
@@ -461,27 +508,27 @@ function App() {
     const dLat = triggerCoords[1] - center.lat;
     const dxGeo = dLon * Math.cos((center.lat * Math.PI) / 180);
     const dyGeo = dLat;
-    
+
     // Geographical angle where North is 0, East is 90
     const geoBearing = (Math.atan2(dxGeo, dyGeo) * 180) / Math.PI;
-    
-    // Screen angle: map bearing offsets geographical bearing. 
+
+    // Screen angle: map bearing offsets geographical bearing.
     // Screen X/Y: 0 degrees is right, 90 is down.
     const screenAngleDeg = geoBearing - map.getBearing() - 90;
     const angle = (screenAngleDeg * Math.PI) / 180;
-    
+
     const PAD = 48;
     const cos = Math.cos(angle);
     const sin = Math.sin(angle);
-    
+
     // Intersect ray from center with padded screen edges
     const tRight = cos > 0 ? (w / 2 - PAD) / cos : Infinity;
     const tLeft = cos < 0 ? -(w / 2 - PAD) / cos : Infinity;
     const tBottom = sin > 0 ? (h / 2 - PAD) / sin : Infinity;
     const tTop = sin < 0 ? -(h / 2 - PAD) / sin : Infinity;
-    
+
     const t = Math.min(tRight, tLeft, tBottom, tTop);
-    
+
     const edgeX = cx + t * cos;
     const edgeY = cy + t * sin;
 
@@ -492,25 +539,28 @@ function App() {
     updateOffscreenArrow();
   }, [updateOffscreenArrow]);
 
-  const handleMapMove = useCallback((e: ViewStateChangeEvent) => {
-    updateOffscreenArrow();
-    const p = e.viewState.pitch;
+  const handleMapMove = useCallback(
+    (e: ViewStateChangeEvent) => {
+      updateOffscreenArrow();
+      const p = e.viewState.pitch;
 
-    if (viewMode === 'angled' && p < 5 && !isAnimatingView.current) {
-      setViewMode('top-down');
-      mapRef.current?.easeTo({ pitch: 0, duration: 800 });
-    } else if (viewMode === 'top-down' && p < 0.5 && !isPitchLocked) {
-      setIsPitchLocked(true);
-    }
-  }, [updateOffscreenArrow, viewMode, isPitchLocked]);
+      if (viewMode === "angled" && p < 5 && !isAnimatingView.current) {
+        setViewMode("top-down");
+        mapRef.current?.easeTo({ pitch: 0, duration: 800 });
+      } else if (viewMode === "top-down" && p < 0.5 && !isPitchLocked) {
+        setIsPitchLocked(true);
+      }
+    },
+    [updateOffscreenArrow, viewMode, isPitchLocked],
+  );
 
   const handleToggleView = () => {
-    if (viewMode === 'angled') {
-      setViewMode('top-down');
+    if (viewMode === "angled") {
+      setViewMode("top-down");
       mapRef.current?.easeTo({ pitch: 0, duration: 1000 });
     } else {
       setIsPitchLocked(false);
-      setViewMode('angled');
+      setViewMode("angled");
       isAnimatingView.current = true;
       setTimeout(() => {
         mapRef.current?.easeTo({ pitch: 55, duration: 1000 });
@@ -559,12 +609,12 @@ function App() {
     };
 
     if (isDraggingDial) {
-      window.addEventListener('pointermove', handlePointerMove);
-      window.addEventListener('pointerup', handlePointerUp);
+      window.addEventListener("pointermove", handlePointerMove);
+      window.addEventListener("pointerup", handlePointerUp);
     }
     return () => {
-      window.removeEventListener('pointermove', handlePointerMove);
-      window.removeEventListener('pointerup', handlePointerUp);
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", handlePointerUp);
     };
   }, [isDraggingDial]);
 
@@ -583,29 +633,29 @@ function App() {
       if (mapRef.current) {
         const dropPoint = [e.clientX, e.clientY] as [number, number];
         const lngLat = mapRef.current.unproject(dropPoint);
-        
+
         // Scatter the crowd into ~12 distinct clusters within a ~150m radius
         // 0.0015 degrees lat/lon is roughly 150m.
         const drops = 12;
         const peoplePerDrop = Math.floor(crowdSize / drops);
-        
+
         for (let i = 0; i < drops; i++) {
           const r = Math.random() * 0.0015;
           const theta = Math.random() * 2 * Math.PI;
           const lat = lngLat.lat + r * Math.cos(theta);
           const lon = lngLat.lng + r * Math.sin(theta);
-          
+
           postPeople(lat, lon, peoplePerDrop).catch(console.error);
         }
       }
     };
 
-    window.addEventListener('pointermove', handlePointerMove);
-    window.addEventListener('pointerup', handlePointerUp);
-    
+    window.addEventListener("pointermove", handlePointerMove);
+    window.addEventListener("pointerup", handlePointerUp);
+
     return () => {
-      window.removeEventListener('pointermove', handlePointerMove);
-      window.removeEventListener('pointerup', handlePointerUp);
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", handlePointerUp);
     };
   }, [isDraggingCrowd, crowdSize]);
 
@@ -619,21 +669,21 @@ function App() {
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.code === 'Space') {
+      if (e.code === "Space") {
         e.preventDefault();
         setIsPlaying((prev) => !prev);
       }
     };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
   }, []);
 
   const formatTime = (minutes: number) => {
     const hours = Math.floor(minutes / 60);
     const mins = minutes % 60;
-    const period = hours >= 12 ? 'PM' : 'AM';
+    const period = hours >= 12 ? "PM" : "AM";
     const displayHours = hours % 12 || 12;
-    return `${displayHours}:${mins.toString().padStart(2, '0')} ${period}`;
+    return `${displayHours}:${mins.toString().padStart(2, "0")} ${period}`;
   };
 
   const dialRadius = 60;
@@ -642,17 +692,19 @@ function App() {
   const thumbY = dialRadius * Math.sin(thumbAngle);
 
   // Dynamic angle calculation for weekday orbit nodes
-  const WEEKDAYS = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
+  const WEEKDAYS = ["S", "M", "T", "W", "T", "F", "S"];
   const focusIndex = hoveredDay !== null ? hoveredDay : dayOfWeek;
-  const ACTIVE_WIDTH = 4.5; 
+  const ACTIVE_WIDTH = 4.5;
   const INACTIVE_WIDTH = 1;
   const TOTAL_SPAN = 130;
   const START_ANGLE = 160;
 
-  const nodeWidths = WEEKDAYS.map((_, i) => i === focusIndex ? ACTIVE_WIDTH : INACTIVE_WIDTH);
+  const nodeWidths = WEEKDAYS.map((_, i) =>
+    i === focusIndex ? ACTIVE_WIDTH : INACTIVE_WIDTH,
+  );
   const gaps = [];
   for (let i = 0; i < 6; i++) {
-    gaps.push((nodeWidths[i] + nodeWidths[i+1]) / 2);
+    gaps.push((nodeWidths[i] + nodeWidths[i + 1]) / 2);
   }
   const totalGap = gaps.reduce((a, b) => a + b, 0);
 
@@ -665,7 +717,12 @@ function App() {
 
   // Interactive layer IDs for click detection
   const interactiveLayerIds = useMemo(
-    () => ['transit-stops-circle', 'transit-stops-dot', 'deploy-pulse-ring', 'deploy-glow-dot'],
+    () => [
+      "transit-stops-circle",
+      "transit-stops-dot",
+      "deploy-pulse-ring",
+      "deploy-glow-dot",
+    ],
     [],
   );
 
@@ -675,27 +732,35 @@ function App() {
         ref={mapRef}
         initialViewState={initialViewState}
         mapStyle="https://basemaps.cartocdn.com/gl/positron-gl-style/style.json"
-        style={{ width: '100vw', height: '100vh' }}
+        style={{ width: "100vw", height: "100vh" }}
         onClick={handleMapClick}
         onMove={handleMapMove}
-        onLoad={(event) => updateBuildingsForViewport(event.target as unknown as MapRef)}
-        onMoveEnd={(event) => updateBuildingsForViewport(event.target as unknown as MapRef)}
+        onLoad={(event) =>
+          updateBuildingsForViewport(event.target as unknown as MapRef)
+        }
+        onMoveEnd={(event) =>
+          updateBuildingsForViewport(event.target as unknown as MapRef)
+        }
         interactiveLayerIds={interactiveLayerIds}
-        cursor={nextStep ? 'pointer' : undefined}
+        cursor={nextStep ? "pointer" : undefined}
         maxPitch={isPitchLocked ? 0 : 85}
       >
         <NavigationControl position="top-right" />
 
-        <button 
+        <button
           className="view-mode-button"
           onClick={handleToggleView}
-          title={viewMode === 'angled' ? 'Switch to Top-Down View' : 'Switch to Angled View'}
+          title={
+            viewMode === "angled"
+              ? "Switch to Top-Down View"
+              : "Switch to Angled View"
+          }
         >
-          {viewMode === 'angled' ? '2D' : '3D'}
+          {viewMode === "angled" ? "2D" : "3D"}
         </button>
 
         <div className="crowd-drop-control">
-          <button 
+          <button
             className="crowd-draggable-btn"
             onPointerDown={(e) => {
               setIsDraggingCrowd(true);
@@ -706,12 +771,12 @@ function App() {
             <Mascot isDragging={isDraggingCrowd} className="crowd-icon" />
           </button>
           <div className="crowd-slider-container">
-            <input 
-              type="range" 
-              min="1000" 
-              max="30000" 
-              step="1000" 
-              value={crowdSize} 
+            <input
+              type="range"
+              min="1000"
+              max="30000"
+              step="1000"
+              value={crowdSize}
               onChange={(e) => setCrowdSize(parseInt(e.target.value))}
               className="crowd-slider"
             />
@@ -723,25 +788,25 @@ function App() {
           <Layer beforeId="watername_ocean" {...buildingFillLayer} />
         </Source>
 
-        <DeckGLOverlay 
-          interleaved={true} 
+        <DeckGLOverlay
+          interleaved={true}
           effects={[lightingEffect]}
           layers={[
             new ScenegraphLayer({
-              id: 'space-needle-3d-v5',
+              id: "space-needle-3d-v5",
               data: [{ position: [-122.3493, 47.6205] }],
-              scenegraph: '/seattle/SPACE NEEDLE.glb',
+              scenegraph: "/seattle/SPACE NEEDLE.glb",
               getPosition: (d: any) => d.position,
               getOrientation: [0, 0, 90],
               getScale: [1, 1, 1],
               sizeScale: 1.2,
               opacity: 0.6, // Ghostly glow mode
-              _lighting: 'pbr',
+              _lighting: "pbr",
               parameters: {
-                depthTest: true
-              }
-            })
-          ]} 
+                depthTest: true,
+              },
+            }),
+          ]}
         />
 
         <Source id="heatmap-source" type="geojson" data={heatmapData}>
@@ -798,39 +863,70 @@ function App() {
 
       {/* Dragging Reticle */}
       {isDraggingCrowd && crowdDragPos && (
-        <div 
+        <div
           className="crowd-drop-reticle"
           style={{
             left: `${crowdDragPos.x}px`,
             top: `${crowdDragPos.y}px`,
           }}
         >
-          <div style={{ width: 80, height: 80, marginBottom: 8, pointerEvents: 'none' }}>
+          <div
+            style={{
+              width: 80,
+              height: 80,
+              marginBottom: 8,
+              pointerEvents: "none",
+            }}
+          >
             <Mascot isDragging={true} />
           </div>
           <div className="reticle-label">Drop {crowdSize / 1000}k</div>
         </div>
       )}
 
-      {/* Temporary Mascot Preview Overlay removed */}
+      {showHeatmapDebug && (
+        <div className="heatmap-debug-panel">
+          <strong>Heatmap Debug</strong>
+          <span>connection: {heatmapDiagnostics.connection}</span>
+          <span>pending: {heatmapDiagnostics.pendingScenarioId ?? "none"}</span>
+          <span>
+            confirmed: {heatmapDiagnostics.confirmedScenarioId ?? "none"}
+          </span>
+          <span>frames: {heatmapDiagnostics.frameCount}</span>
+          <span>features: {heatmapDiagnostics.featureCount}</span>
+          <span>cells: {heatmapDiagnostics.lastFrameCellCount}</span>
+          <span>
+            grid:{" "}
+            {heatmapDiagnostics.config
+              ? `${heatmapDiagnostics.config.rows}x${heatmapDiagnostics.config.cols}`
+              : "none"}
+          </span>
+          {heatmapDiagnostics.lastError && (
+            <span>{heatmapDiagnostics.lastError}</span>
+          )}
+        </div>
+      )}
 
       <div className="time-controls-wrapper">
         {WEEKDAYS.map((dayLabel, index) => {
           const angleDeg = nodeAngles[index];
-          const angleRad = angleDeg * Math.PI / 180;
+          const angleRad = (angleDeg * Math.PI) / 180;
           const isFocused = focusIndex === index;
-          const R = isFocused ? 122 : 110; 
+          const R = isFocused ? 122 : 110;
           const x = Math.cos(angleRad) * R;
           const y = Math.sin(angleRad) * R;
 
           return (
             <button
               key={index}
-              className={`orbit-node ${dayOfWeek === index ? 'is-selected' : ''} ${focusIndex === index ? 'is-focused' : ''}`}
-              style={{ '--x': `${x}px`, '--y': `${y}px` } as React.CSSProperties}
+              className={`orbit-node ${dayOfWeek === index ? "is-selected" : ""} ${focusIndex === index ? "is-focused" : ""}`}
+              style={
+                { "--x": `${x}px`, "--y": `${y}px` } as React.CSSProperties
+              }
               onClick={() => setDayOfWeek(index)}
               onMouseEnter={() => {
-                if (hoverTimeoutRef.current) clearTimeout(hoverTimeoutRef.current);
+                if (hoverTimeoutRef.current)
+                  clearTimeout(hoverTimeoutRef.current);
                 setHoveredDay(index);
               }}
               onMouseLeave={() => {
@@ -846,37 +942,63 @@ function App() {
         })}
 
         <div className="radial-dial-container">
-          <div 
-            className="radial-dial" 
+          <div
+            className="radial-dial"
             ref={dialRef}
             onPointerDown={(e) => {
               setIsDraggingDial(true);
               updateTimeFromPointer(e.clientX, e.clientY);
             }}
-            style={{ touchAction: 'none' }}
+            style={{ touchAction: "none" }}
           >
             <svg viewBox="-75 -75 150 150" className="radial-dial-svg">
               <circle cx="0" cy="0" r={dialRadius} className="dial-track" />
-              <line x1="0" y1={-dialRadius - 6} x2="0" y2={-dialRadius + 6} stroke="rgba(43, 77, 112, 0.4)" strokeWidth="2" />
-              <line x1="0" y1={dialRadius - 6} x2="0" y2={dialRadius + 6} stroke="rgba(43, 77, 112, 0.4)" strokeWidth="2" />
-              <line x1={-dialRadius - 6} y1="0" x2={-dialRadius + 6} y2="0" stroke="rgba(43, 77, 112, 0.4)" strokeWidth="2" />
-              <line x1={dialRadius - 6} y1="0" x2={dialRadius + 6} y2="0" stroke="rgba(43, 77, 112, 0.4)" strokeWidth="2" />
-              
-              <circle 
-                cx={thumbX} 
-                cy={thumbY} 
-                r="8" 
-                className="dial-thumb" 
+              <line
+                x1="0"
+                y1={-dialRadius - 6}
+                x2="0"
+                y2={-dialRadius + 6}
+                stroke="rgba(43, 77, 112, 0.4)"
+                strokeWidth="2"
               />
+              <line
+                x1="0"
+                y1={dialRadius - 6}
+                x2="0"
+                y2={dialRadius + 6}
+                stroke="rgba(43, 77, 112, 0.4)"
+                strokeWidth="2"
+              />
+              <line
+                x1={-dialRadius - 6}
+                y1="0"
+                x2={-dialRadius + 6}
+                y2="0"
+                stroke="rgba(43, 77, 112, 0.4)"
+                strokeWidth="2"
+              />
+              <line
+                x1={dialRadius - 6}
+                y1="0"
+                x2={dialRadius + 6}
+                y2="0"
+                stroke="rgba(43, 77, 112, 0.4)"
+                strokeWidth="2"
+              />
+
+              <circle cx={thumbX} cy={thumbY} r="8" className="dial-thumb" />
             </svg>
             <div className="dial-center-content">
               <span className="dial-time">{formatTime(timeOfDay)}</span>
               <button
                 className="dial-play-btn"
-                onClick={(e) => { e.stopPropagation(); setIsPlaying(!isPlaying); }}
-                aria-label={isPlaying ? 'Pause' : 'Play'}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setIsPlaying(!isPlaying);
+                }}
+                aria-label={isPlaying ? "Pause" : "Play"}
               >
-                {isPlaying ? 'PAUSE' : 'PLAY'}
+                {isPlaying ? "PAUSE" : "PLAY"}
               </button>
             </div>
           </div>
