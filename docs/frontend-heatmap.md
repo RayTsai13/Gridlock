@@ -17,15 +17,22 @@ See [seattle-map-architecture.md](./seattle-map-architecture.md) for the cached 
 
 Reconnection is automatic (built-in `EventSource` behavior). A new `config` event on reconnect re-initializes the grid idempotently.
 
+The stream frame is already the composed display state. The frontend should not add scenario deltas to baseline values for the primary heatmap layer. It should render the `cells` array exactly as the backend emits it.
+
 ---
 
 ## Grid-to-GeoJSON Conversion
 
-Each frame arrives as a sparse array of `[row, col, density]` tuples. The frontend converts this to a GeoJSON `FeatureCollection` of **Point** features, one per active cell, positioned at the cell centroid:
+Each frame arrives as metadata plus a sparse array of `[row, col, density]` tuples. The frontend converts `cells` to a GeoJSON `FeatureCollection` of **Point** features, one per active cell, positioned at the cell centroid:
 
 ```
 Frame input:
-  { "timestamp": ..., "cells": [[12, 34, 0.82], [13, 34, 0.65]] }
+  {
+    "timestamp": ...,
+    "state_version": "state_v4",
+    "sim_time": { "day_of_week": 0, "time_bin": 510, "minute_of_week": 510 },
+    "cells": [[12, 34, 0.82], [13, 34, 0.65]]
+  }
 
 GeoJSON output:
   {
@@ -45,7 +52,7 @@ GeoJSON output:
   }
 ```
 
-The `[lon, lat]` for each cell is read from the precomputed centroid lookup (see above). No geometry math happens per-frame — just an array index.
+The `[lon, lat]` for each cell is read from the precomputed centroid lookup (see above). No geometry math happens per-frame, just an array index. The current frontend can ignore `state_version` and `sim_time` until playback controls or scenario status UI need them.
 
 ---
 
@@ -70,9 +77,13 @@ The heatmap layer is placed **above** the building fill/extrusion layers in the 
 ## Data Flow Summary
 
 ```
-Python model
+Baseline components + scenario state
     │
-    │  SSE frame: { timestamp, cells: [[row, col, density], ...] }
+    │  Backend frame composer
+    ▼
+Python SSE server
+    │
+    │  SSE frame: { timestamp, state_version, sim_time, cells: [[row, col, density], ...] }
     ▼
 EventSource listener
     │
@@ -87,6 +98,22 @@ MapLibre GeoJSON source (react-map-gl <Source>)
     ▼
 MapLibre heatmap layer (react-map-gl <Layer>)
 ```
+
+---
+
+## Scenario State Boundary
+
+Scenario state belongs behind the stream, not inside the MapLibre renderer.
+
+When the user adds a station, line, event, or frequency change, the frontend should call a normal HTTP mutation endpoint such as `POST /api/scenarios`. The backend creates a new immutable `state_version`, computes the affected demand deltas from `state_before` to `state_after`, and then the SSE stream starts emitting composed frames for the new state when ready.
+
+For the heatmap layer, the frontend continues doing the same work:
+
+```text
+receive frame -> convert cells to GeoJSON -> update MapLibre source
+```
+
+The frontend may later use `state_version` and `sim_time` to show controls, loading states, or compare baseline vs scenario, but those fields are not required for rendering the heatmap.
 
 ---
 

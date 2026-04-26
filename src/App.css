@@ -261,6 +261,41 @@
   50% { opacity: 1; }
 }
 
+.map-status-banner {
+  position: absolute;
+  left: 24px;
+  bottom: 24px;
+  z-index: 3;
+  max-width: 320px;
+  padding: 10px 14px;
+  border-radius: 12px;
+  color: #7f1d1d;
+  background: rgba(254, 242, 242, 0.92);
+  border: 1px solid rgba(248, 113, 113, 0.35);
+  box-shadow: 0 8px 24px rgba(127, 29, 29, 0.12);
+  font-family: 'Outfit', sans-serif;
+  font-size: 0.8rem;
+}
+
+.heatmap-debug-panel {
+  position: absolute;
+  top: 24px;
+  left: 24px;
+  z-index: 3;
+  display: grid;
+  gap: 4px;
+  min-width: 220px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  color: #0f172a;
+  background: rgba(255, 255, 255, 0.9);
+  border: 1px solid rgba(15, 23, 42, 0.14);
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12);
+  font-family: 'Outfit', sans-serif;
+  font-size: 0.78rem;
+  pointer-events: none;
+}
+
 .time-controls-wrapper {
   position: absolute;
   bottom: 32px;

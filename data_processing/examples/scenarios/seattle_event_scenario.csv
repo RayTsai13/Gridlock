@@ -1,0 +1,2 @@
+event_id,lat,lon,day_of_week,start_hour,end_hour,start_minute,end_minute,surplus_users,radius_m,decay_m
+stadium_evening,47.5952,-122.3316,5,17,22,1050,1350,45000,2500,900
