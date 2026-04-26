@@ -123,3 +123,41 @@ export const stopLabelLayer: LayerProps = {
   },
   minzoom: 13,
 };
+
+// ---------------------------------------------------------------------------
+// Deploy indicator layers  (pulsing ring on the trigger station)
+// ---------------------------------------------------------------------------
+
+/** Outer pulsing ring around the trigger station. */
+export const deployPulseRingLayer: LayerProps = {
+  id: 'deploy-pulse-ring',
+  type: 'circle',
+  paint: {
+    'circle-radius': [
+      'interpolate', ['linear'], ['zoom'],
+      10, 12,
+      13, 20,
+      16, 30,
+    ],
+    'circle-color': 'transparent',
+    'circle-stroke-width': 3,
+    'circle-stroke-color': '#facc15',
+    'circle-stroke-opacity': 0.8,
+  },
+};
+
+/** Inner glow dot on the trigger station. */
+export const deployGlowDotLayer: LayerProps = {
+  id: 'deploy-glow-dot',
+  type: 'circle',
+  paint: {
+    'circle-radius': [
+      'interpolate', ['linear'], ['zoom'],
+      10, 6,
+      13, 10,
+      16, 15,
+    ],
+    'circle-color': '#facc15',
+    'circle-opacity': 0.25,
+  },
+};
