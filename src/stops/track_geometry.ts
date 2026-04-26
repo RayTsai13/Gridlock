@@ -583,3 +583,50 @@ export const LINE_2_TRACK: LonLat[] = [
   [-122.11004, 47.66956], [-122.11068, 47.66972], [-122.11518, 47.67082], [-122.11614, 47.67108],
   [-122.11675, 47.67126], [-122.11771, 47.67151], [-122.11901, 47.67183],
 ];
+
+/**
+ * Ballard Link Extension (BLE) — coarse alignment estimated from Sound
+ * Transit ST3 preferred-alternative planning documents. The line runs from
+ * Ballard south along 15th Ave NW/W under Salmon Bay to Interbay, curves
+ * east through Smith Cove and Seattle Center to South Lake Union, then south
+ * to Denny and into a NEW downtown tunnel — separate from the 1/2 Line tunnel
+ * — with its own platforms at Westlake, Midtown (new), Chinatown/Intl District,
+ * and SODO. Not GTFS-derived; positions are interpolated.
+ */
+export const BALLARD_TRACK: LonLat[] = [
+  // Ballard (NW Market St)
+  [-122.3765, 47.6677],
+  [-122.3765, 47.6655], [-122.3765, 47.6630], [-122.3765, 47.6605],
+  [-122.3765, 47.6580], [-122.3765, 47.6555], [-122.3765, 47.6530],
+  [-122.3765, 47.6505],
+  // Interbay
+  [-122.3765, 47.6478],
+  [-122.3760, 47.6455], [-122.3750, 47.6435], [-122.3735, 47.6418],
+  [-122.3715, 47.6405], [-122.3690, 47.6395], [-122.3665, 47.6385],
+  // Smith Cove
+  [-122.3635, 47.6378],
+  [-122.3610, 47.6365], [-122.3585, 47.6345], [-122.3565, 47.6320],
+  [-122.3550, 47.6295], [-122.3535, 47.6270],
+  // Seattle Center
+  [-122.3520, 47.6243],
+  [-122.3490, 47.6248], [-122.3455, 47.6253], [-122.3415, 47.6256],
+  // South Lake Union
+  [-122.3377, 47.6258],
+  [-122.3380, 47.6240], [-122.3388, 47.6220], [-122.3397, 47.6202],
+  // Denny
+  [-122.3405, 47.6188],
+  [-122.3398, 47.6165], [-122.3388, 47.6140], [-122.3378, 47.6125],
+  // Westlake (new BLE platform; transfer to 1/2 Line)
+  [-122.3370, 47.6113],
+  [-122.3358, 47.6105], [-122.3345, 47.6097], [-122.3332, 47.6092],
+  // Midtown (new — 5th Ave & Madison St)
+  [-122.3322, 47.6088],
+  [-122.3315, 47.6065], [-122.3305, 47.6040], [-122.3295, 47.6015],
+  [-122.3285, 47.5995],
+  // Chinatown/Intl District (new BLE platform; transfer)
+  [-122.3278, 47.5983],
+  [-122.3275, 47.5950], [-122.3274, 47.5910], [-122.3272, 47.5870],
+  [-122.3271, 47.5840],
+  // SODO (new BLE platform; transfer)
+  [-122.3271, 47.5807],
+];

@@ -1,5 +1,5 @@
 import type { Feature, FeatureCollection, LineString, Point } from 'geojson';
-import { LINE_1_TRACK, LINE_2_TRACK, type LonLat } from './track_geometry';
+import { BALLARD_TRACK, LINE_1_TRACK, LINE_2_TRACK, type LonLat } from './track_geometry';
 
 export type TransitStop = {
   id: string;
@@ -63,7 +63,8 @@ export const LINE_2_STOPS: TransitStop[] = [
 
 /** Ballard extension — unique stations not on the 1 or 2 Line. */
 export const BALLARD_STOPS: TransitStop[] = [
-  { id: 'denny',            name: 'Denny',            coordinates: [-122.3405, 47.6188] },
+  { id: 'midtown',          name: 'Midtown',           coordinates: [-122.3322, 47.6088] },
+  { id: 'denny',            name: 'Denny',             coordinates: [-122.3405, 47.6188] },
   { id: 'south-lake-union', name: 'South Lake Union',  coordinates: [-122.3377, 47.6258] },
   { id: 'seattle-center',   name: 'Seattle Center',    coordinates: [-122.3520, 47.6243] },
   { id: 'smith-cove',       name: 'Smith Cove',        coordinates: [-122.3635, 47.6378] },
@@ -108,9 +109,11 @@ export const LINK_2_LINE: TransitLine = {
 };
 
 /**
- * Ballard Line — runs from Ballard south through downtown to SODO.
- * Shares Westlake → SODO with the 1 Line.
- * All three lines overlap from Westlake → ID/Chinatown.
+ * Ballard Link Extension — runs from Ballard south through a NEW downtown
+ * tunnel separate from the 1/2 Line tunnel. Trains stop at new BLE platforms
+ * at Westlake, Midtown (new station), Chinatown/Intl District, and SODO;
+ * Westlake, ID/Chinatown, and SODO are the only transfer points to the 1/2
+ * Line. The BLE does not stop at Symphony, Pioneer Square, or Stadium.
  */
 export const BALLARD_LINE: TransitLine = {
   id: 'ballard-line',
@@ -119,9 +122,10 @@ export const BALLARD_LINE: TransitLine = {
   offset: 0,
   stopIds: [
     'ballard', 'interbay', 'smith-cove', 'seattle-center',
-    'south-lake-union', 'denny', 'westlake', 'symphony',
-    'pioneer-square', 'id-chinatown', 'stadium', 'sodo',
+    'south-lake-union', 'denny', 'westlake', 'midtown',
+    'id-chinatown', 'sodo',
   ],
+  path: BALLARD_TRACK,
 };
 
 // ---------------------------------------------------------------------------
