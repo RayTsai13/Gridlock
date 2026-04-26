@@ -311,18 +311,12 @@ function App() {
   const [regionCollections, setRegionCollections] = useState<
     Record<string, FeatureCollection<Geometry>>
   >({});
+  const [queryBounds, setQueryBounds] = useState(initialBounds);
+  const [regionErrors, setRegionErrors] = useState<Record<string, string>>({});
   const buildings = useMemo(
     () => mergeFeatureCollections(Object.values(regionCollections)),
     [regionCollections],
   );
-  const [queryBounds, setQueryBounds] = useState(initialBounds);
-  const [regionErrors, setRegionErrors] = useState<Record<string, string>>({});
-
-  useEffect(() => {
-    setScenario(DEPLOY_STEPS[deployedIndex].id).catch((err) => {
-      console.warn("[heatmap] failed to set scenario", err);
-    });
-  }, [deployedIndex, setScenario]);
 
   // Time controls
   const [dragTimeOfDay, setDragTimeOfDay] = useState<number | null>(null);
@@ -394,6 +388,12 @@ function App() {
     }
     return { activeStops: stops, activeLines: lines };
   }, [deployedIndex]);
+
+  useEffect(() => {
+    setScenario(DEPLOY_STEPS[deployedIndex].id, activeStops, activeLines).catch((err) => {
+      console.warn("[heatmap] failed to set scenario", err);
+    });
+  }, [activeLines, activeStops, deployedIndex, setScenario]);
 
   const stopsGeoJSON = useMemo(
     () => stopsToGeoJSON(activeStops, activeLines),
@@ -795,7 +795,11 @@ function App() {
           const lat = lngLat.lat + r * Math.cos(theta);
           const lon = lngLat.lng + r * Math.sin(theta);
 
-          addPeople(lat, lon, peoplePerDrop).catch(console.error);
+          addPeople(lat, lon, peoplePerDrop, {
+            kind: "crowd",
+            duration_minutes: 240,
+            radius_m: 2800,
+          }).catch(console.error);
         }
       }
     };

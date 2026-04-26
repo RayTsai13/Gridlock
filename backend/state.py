@@ -1,51 +1,59 @@
-"""In-memory backend state shared across all SSE connections.
-
-Tracks the active scenario and any user-placed groups of people, and exposes
-an asyncio condition so SSE streams can wake up immediately on changes
-instead of waiting for the next frame tick.
-"""
+"""Process-wide simulation state for the interactive heatmap backend."""
 
 from __future__ import annotations
 
 import asyncio
-import secrets
-from dataclasses import dataclass
+from typing import Any
 
+from .composer import FrameComposer
 from .grid import Grid
-
-VALID_SCENARIO_IDS = frozenset({"line-1", "line-1-2", "line-1-2-ballard"})
-DEFAULT_SCENARIO_ID = "line-1"
-
-# Density boost contributed per person at their cell.
-# The composed cell is clamped to 1.0, so this is a per-person additive nudge,
-# not a multiplier. Tune as the model is wired in.
-PERSON_DENSITY_PER_COUNT = 0.02
-
-
-@dataclass
-class Person:
-    id: str
-    lat: float
-    lon: float
-    count: int
+from .network import (
+    DEFAULT_SCENARIO_ID,
+    VALID_SCENARIO_IDS,
+    ActiveNetwork,
+    NetworkInfluence,
+    default_network_for_scenario,
+    parse_network_payload,
+)
+from .overlays import CrowdOverlay, LiveOverlayManager
+from .seeds import SeedField
+from .sim_time import PlaybackController
 
 
 class State:
-    """Process-wide state. Single instance per server."""
+    """Single-process simulation state shared by all SSE connections."""
 
-    def __init__(self, grid: Grid) -> None:
+    def __init__(
+        self,
+        grid: Grid,
+        *,
+        frame_interval_seconds: float = 1.0,
+        sim_step_seconds: int = 1800,
+    ) -> None:
         self.grid = grid
+        self.seed_field = SeedField(grid)
+        self.composer = FrameComposer(seed_field=self.seed_field)
+        self.playback = PlaybackController(
+            frame_interval_seconds=frame_interval_seconds,
+            sim_step_seconds=sim_step_seconds,
+        )
         self.scenario_id: str = DEFAULT_SCENARIO_ID
-        self.people: dict[str, Person] = {}
+        self.active_network: ActiveNetwork = default_network_for_scenario(self.scenario_id)
+        self.network_influence = NetworkInfluence(grid, self.active_network)
+        self.overlays = LiveOverlayManager(self.seed_field.centers)
+        self.people = self.overlays.people
+        self.scenario_revision: int = 0
         self._version: int = 0
-        # Created lazily on first use so the condition binds to the running
-        # event loop — important on Python 3.9 where asyncio primitives latch
-        # onto the loop at construction time.
+        self._state_counter: int = 0
         self._cond: asyncio.Condition | None = None
 
     @property
     def version(self) -> int:
         return self._version
+
+    @property
+    def state_version(self) -> str:
+        return f"state_v{self._state_counter}"
 
     def _ensure_cond(self) -> asyncio.Condition:
         if self._cond is None:
@@ -53,18 +61,12 @@ class State:
         return self._cond
 
     async def notify_change(self) -> None:
-        """Bump version + wake everyone waiting in :meth:`wait_for_change`."""
         self._version += 1
         cond = self._ensure_cond()
         async with cond:
             cond.notify_all()
 
     async def wait_for_change(self, last_version: int, timeout: float) -> int:
-        """Block until ``version > last_version`` or ``timeout`` elapses.
-
-        Returns the current version regardless of why we woke up, so the
-        caller can pass it back on the next call.
-        """
         cond = self._ensure_cond()
         async with cond:
             try:
@@ -76,12 +78,36 @@ class State:
                 pass
         return self._version
 
-    def set_scenario(self, scenario_id: str) -> None:
+    def set_scenario(
+        self,
+        scenario_id: str,
+        *,
+        stops: Any = None,
+        lines: Any = None,
+    ) -> None:
         if scenario_id not in VALID_SCENARIO_IDS:
             raise ValueError(f"Unknown scenario_id: {scenario_id!r}")
         self.scenario_id = scenario_id
+        self.active_network = parse_network_payload(
+            scenario_id=scenario_id,
+            stops_payload=stops,
+            lines_payload=lines,
+        )
+        self.network_influence = NetworkInfluence(self.grid, self.active_network)
+        self.scenario_revision += 1
+        self._state_counter += 1
 
-    def add_person(self, lat: float, lon: float, count: int) -> Person:
+    def add_person(
+        self,
+        *,
+        lat: float,
+        lon: float,
+        count: int,
+        kind: str | None = None,
+        duration_minutes: int | None = None,
+        radius_m: float | None = None,
+        decay_m: float | None = None,
+    ) -> CrowdOverlay:
         bounds = self.grid.bounds
         in_bounds = (
             bounds.west <= lon <= bounds.east
@@ -89,49 +115,65 @@ class State:
         )
         if not in_bounds:
             raise ValueError("lat/lon outside configured grid bounds")
-        person = Person(
-            id=f"p_{secrets.token_hex(4)}",
+        overlay = self.overlays.add(
             lat=lat,
             lon=lon,
-            count=max(1, int(count)),
+            count=count,
+            sim_time=self.playback.current_time,
+            kind=kind,
+            duration_minutes=duration_minutes,
+            radius_m=radius_m,
+            decay_m=decay_m,
         )
-        self.people[person.id] = person
-        return person
+        self._state_counter += 1
+        return overlay
 
     def remove_person(self, person_id: str) -> None:
-        if person_id not in self.people:
-            raise KeyError(person_id)
-        del self.people[person_id]
+        self.overlays.remove(person_id)
+        self._state_counter += 1
 
     def clear_people(self) -> None:
-        self.people.clear()
+        if self.people:
+            self._state_counter += 1
+        self.overlays.clear()
+
+    def playback_state(self) -> dict[str, object]:
+        return self.playback.to_dict()
+
+    def set_playback(
+        self,
+        *,
+        is_playing: bool | None = None,
+        sim_minutes_per_second: float | None = None,
+    ) -> None:
+        if is_playing is not None:
+            self.playback.set_playing(is_playing)
+        if sim_minutes_per_second is not None:
+            self.playback.set_speed(sim_minutes_per_second)
+
+    def seek_playback(
+        self,
+        *,
+        minute_of_week: int | None = None,
+        day_of_week: int | None = None,
+        time_bin: int | None = None,
+    ) -> None:
+        self.playback.seek(
+            minute_of_week=minute_of_week,
+            day_of_week=day_of_week,
+            time_bin=time_bin,
+        )
+
+    def advance_playback(self) -> None:
+        self.playback.advance()
+
+    def compose_frame(self) -> dict[str, object]:
+        return self.composer.compose(
+            sim_time=self.playback.current_time,
+            state_version=self.state_version,
+            network_influence=self.network_influence,
+            overlays=self.overlays,
+        ).to_dict()
 
     def compose_frame_cells(self) -> list[list[int | float]]:
-        """Return the sparse ``[[row, col, density], ...]`` payload for a frame.
-
-        Combines the static grid density with people boosts. This is where the
-        live simulation model would plug in once it exists — for now the grid
-        is static and people simply add to whichever cell they land in.
-        """
-        grid = self.grid
-        bounds = grid.bounds
-        cell_w = (bounds.east - bounds.west) / grid.cols
-        cell_h = (bounds.north - bounds.south) / grid.rows
-
-        density = [row[:] for row in grid.density]
-
-        for person in self.people.values():
-            col = int((person.lon - bounds.west) / cell_w)
-            row = int((bounds.north - person.lat) / cell_h)
-            if 0 <= row < grid.rows and 0 <= col < grid.cols:
-                boost = PERSON_DENSITY_PER_COUNT * person.count
-                density[row][col] = min(1.0, density[row][col] + boost)
-
-        cells: list[list[int | float]] = []
-        for r in range(grid.rows):
-            row_values = density[r]
-            for c in range(grid.cols):
-                value = row_values[c]
-                if value > 0.0:
-                    cells.append([r, c, round(value, 3)])
-        return cells
+        return self.compose_frame()["cells"]  # type: ignore[return-value]
