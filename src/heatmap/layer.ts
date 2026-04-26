@@ -2,56 +2,29 @@ import type { LayerProps } from "react-map-gl/maplibre";
 
 export const heatmapLayer: LayerProps = {
   id: "foot-traffic-heatmap",
-  type: "heatmap",
+  type: "circle",
+  layout: {
+    "circle-sort-key": ["get", "density"],
+  },
   paint: {
-    "heatmap-weight": [
+    "circle-radius": [
+      "interpolate",
+      ["linear"],
+      ["zoom"],
+      10,
+      18,
+      13,
+      34,
+      15,
+      52,
+      16,
+      68,
+    ],
+
+    "circle-color": [
       "interpolate",
       ["linear"],
       ["get", "density"],
-      0,
-      0,
-      0.08,
-      0.08,
-      0.35,
-      0.24,
-      0.7,
-      0.46,
-      1,
-      0.68,
-    ],
-
-    "heatmap-intensity": [
-      "interpolate",
-      ["linear"],
-      ["zoom"],
-      10,
-      0.55,
-      13,
-      0.9,
-      15,
-      1.25,
-      16,
-      1.55,
-    ],
-
-    "heatmap-radius": [
-      "interpolate",
-      ["linear"],
-      ["zoom"],
-      10,
-      46,
-      13,
-      78,
-      15,
-      112,
-      16,
-      148,
-    ],
-
-    "heatmap-color": [
-      "interpolate",
-      ["linear"],
-      ["heatmap-density"],
       0,
       "rgba(0, 0, 0, 0)",
       0.05,
@@ -77,7 +50,7 @@ export const heatmapLayer: LayerProps = {
       1.0,
       "rgba(165, 0, 38, 1)",
     ],
-
-    "heatmap-opacity": 0.82,
+    "circle-blur": 0.75,
+    "circle-opacity": 0.82,
   },
 };

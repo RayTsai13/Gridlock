@@ -56,21 +56,21 @@ The `[lon, lat]` for each cell is read from the precomputed centroid lookup (see
 
 ---
 
-## MapLibre Heatmap Layer
+## MapLibre Density Layer
 
-The GeoJSON point source feeds a MapLibre `heatmap` layer. This gives smooth, blurred heat visuals rather than showing raw grid cells.
+The GeoJSON point source feeds a blurred MapLibre `circle` layer. Each point's color is mapped directly from its raw `density` property, so the same density value keeps the same color at every zoom level.
 
 Key layer properties:
 
-| Property               | Value                                      | Purpose                                             |
-|------------------------|--------------------------------------------|-----------------------------------------------------|
-| `heatmap-weight`       | `["get", "density"]`                       | Each point's contribution scales with its density   |
-| `heatmap-intensity`    | Interpolated by zoom                       | Keeps visual intensity consistent across zoom levels|
-| `heatmap-radius`       | Interpolated by zoom                       | Blur radius grows/shrinks with zoom                 |
-| `heatmap-color`        | Color ramp from transparent → yellow → red | Standard density color scale                        |
-| `heatmap-opacity`      | ~0.7                                       | Semi-transparent so buildings show through           |
+| Property          | Value                                      | Purpose                                             |
+|-------------------|--------------------------------------------|-----------------------------------------------------|
+| `circle-color`    | Color ramp from raw `density`              | Keeps color stable across zoom levels               |
+| `circle-radius`   | Interpolated by zoom                       | Blur footprint grows/shrinks with zoom              |
+| `circle-blur`     | Constant blur                              | Keeps a soft heatmap-like visual                    |
+| `circle-opacity`  | Constant opacity                           | Semi-transparent so buildings show through          |
+| `circle-sort-key` | `["get", "density"]`                       | Draws hotter samples above cooler samples           |
 
-The heatmap layer is placed **above** the building fill/extrusion layers in the map's layer stack so density is visible over the Seattle building footprints.
+The density layer is placed **above** the building fill/extrusion layers in the map's layer stack so density is visible over the Seattle building footprints.
 
 ---
 
