@@ -29,7 +29,7 @@ export type ExpansionMode = {
 // ---------------------------------------------------------------------------
 
 /** Existing Link 1 Line stations, ordered north → south. */
-const LINE_1_STOPS: TransitStop[] = [
+export const LINE_1_STOPS: TransitStop[] = [
   { id: 'northgate',      name: 'Northgate',                 coordinates: [-122.3272, 47.6992] },
   { id: 'roosevelt',      name: 'Roosevelt',                 coordinates: [-122.3167, 47.6768] },
   { id: 'u-district',     name: 'U District',                coordinates: [-122.3155, 47.6614] },
@@ -49,14 +49,14 @@ const LINE_1_STOPS: TransitStop[] = [
 ];
 
 /** 2 Line — branches east from ID/Chinatown, across Lake Washington. */
-const LINE_2_STOPS: TransitStop[] = [
+export const LINE_2_STOPS: TransitStop[] = [
   { id: 'judkins-park',      name: 'Judkins Park',      coordinates: [-122.3043, 47.5907] },
   { id: 'mercer-island',     name: 'Mercer Island',     coordinates: [-122.2350, 47.5871] },
   { id: 'bellevue-downtown', name: 'Bellevue Downtown', coordinates: [-122.1960, 47.6155] },
 ];
 
 /** Ballard extension — unique stations not on the 1 or 2 Line. */
-const BALLARD_STOPS: TransitStop[] = [
+export const BALLARD_STOPS: TransitStop[] = [
   { id: 'denny',            name: 'Denny',            coordinates: [-122.3405, 47.6188] },
   { id: 'south-lake-union', name: 'South Lake Union',  coordinates: [-122.3377, 47.6258] },
   { id: 'seattle-center',   name: 'Seattle Center',    coordinates: [-122.3520, 47.6243] },
@@ -69,7 +69,7 @@ const BALLARD_STOPS: TransitStop[] = [
 // Lines
 // ---------------------------------------------------------------------------
 
-const LINK_1_LINE: TransitLine = {
+export const LINK_1_LINE: TransitLine = {
   id: 'link-1-line',
   name: '1 Line',
   color: '#0063c6',
@@ -87,7 +87,7 @@ const LINK_1_LINE: TransitLine = {
  * then branches east from ID/Chinatown across Lake Washington.
  * Overlaps with the 1 Line from Northgate to ID/Chinatown.
  */
-const LINK_2_LINE: TransitLine = {
+export const LINK_2_LINE: TransitLine = {
   id: 'link-2-line',
   name: '2 Line',
   color: '#d63e2a',
@@ -104,7 +104,7 @@ const LINK_2_LINE: TransitLine = {
  * Shares Westlake → SODO with the 1 Line.
  * All three lines overlap from Westlake → ID/Chinatown.
  */
-const BALLARD_LINE: TransitLine = {
+export const BALLARD_LINE: TransitLine = {
   id: 'ballard-line',
   name: 'Ballard Line',
   color: '#00875a',
@@ -179,3 +179,25 @@ export function linesToGeoJSON(
 
   return { type: 'FeatureCollection', features };
 }
+
+// ---------------------------------------------------------------------------
+// Deploy steps — progressive unlock sequence
+// ---------------------------------------------------------------------------
+
+export type DeployStep = {
+  id: string;
+  /** The stop ID the user must click to deploy this line. null = auto-deployed on load. */
+  triggerStopId: string | null;
+  /** Custom coordinates for the deploy node (overrides triggerStopId position). */
+  triggerCoordinates?: [longitude: number, latitude: number];
+  line: TransitLine;
+  newStops: TransitStop[];
+  /** Label shown on the deploy tooltip. */
+  label?: string;
+};
+
+export const DEPLOY_STEPS: DeployStep[] = [
+  { id: 'line-1', triggerStopId: null, line: LINK_1_LINE, newStops: LINE_1_STOPS },
+  { id: 'line-2', triggerStopId: 'id-chinatown', triggerCoordinates: [-122.285, 47.589], line: LINK_2_LINE, newStops: LINE_2_STOPS, label: 'Deploy 2 Line' },
+  { id: 'ballard', triggerStopId: 'westlake', line: BALLARD_LINE, newStops: BALLARD_STOPS, label: 'Deploy Ballard Extension' },
+];
