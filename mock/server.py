@@ -34,9 +34,9 @@ app.add_middleware(
 )
 
 GRID_CONFIG = {
-    "bounds": {"west": -122.4357, "south": 47.4957, "east": -122.2358, "north": 47.7352},
-    "rows": 200,
-    "cols": 170,
+    "bounds": {"west": -122.4597, "south": 47.481, "east": -122.2244, "north": 47.734},
+    "rows": 57,
+    "cols": 36,
 }
 FRAME_INTERVAL_S = 1.0
 VALID_SCENARIO_IDS = ("line-1", "line-1-2", "line-1-2-ballard")
@@ -46,27 +46,27 @@ DEFAULT_SCENARIO_ID = VALID_SCENARIO_IDS[0]
 # synthetic map as each transit expansion is enabled.
 SCENARIO_HOTSPOTS = {
     "line-1": [
-        (105, 82, 1.00),  # downtown core
-        (112, 75, 0.72),  # pioneer square / stadium district
-        (105, 95, 0.58),  # first hill
-        (118, 103, 0.48),  # mount baker corridor
-        (132, 107, 0.52),  # beacon hill
-        (58, 79, 0.62),  # university district / north link
+        (28, 18, 1.00),  # downtown core
+        (30, 17, 0.72),  # pioneer square / stadium district
+        (28, 20, 0.58),  # first hill
+        (31, 22, 0.48),  # mount baker corridor
+        (35, 23, 0.52),  # beacon hill
+        (15, 17, 0.62),  # university district / north link
     ],
     "line-1-2": [
-        (97, 94, 0.82),  # capitol hill
-        (87, 119, 0.54),  # montlake / 520 approach
-        (95, 116, 0.47),  # leschi / madrona
-        (80, 129, 0.42),  # laurelhurst edge
-        (92, 133, 0.35),  # washington park
+        (26, 20, 0.82),  # capitol hill
+        (23, 25, 0.54),  # montlake / 520 approach
+        (25, 24, 0.47),  # leschi / madrona
+        (21, 26, 0.42),  # laurelhurst edge
+        (24, 27, 0.35),  # washington park
     ],
     "line-1-2-ballard": [
-        (97, 78, 0.78),  # south lake union / belltown
-        (73, 58, 0.68),  # queen anne
-        (63, 48, 0.61),  # fremont
-        (55, 37, 0.56),  # ballard
-        (60, 68, 0.45),  # wallingford
-        (135, 43, 0.48),  # west seattle junction
+        (26, 17, 0.78),  # south lake union / belltown
+        (19, 14, 0.68),  # queen anne
+        (16, 12, 0.61),  # fremont
+        (14, 10, 0.56),  # ballard
+        (16, 15, 0.45),  # wallingford
+        (36, 11, 0.48),  # west seattle junction
     ],
 }
 
@@ -99,10 +99,10 @@ _LAKE_WA_COAST = [
     (47.50, -122.255),
 ]
 
-_BASE_GAUSS_SPREAD = 800
-_BASE_CUTOFF_DIST = 60
-_PERSON_RADIUS = 5
-_PERSON_SPREAD = 6.0
+_BASE_GAUSS_SPREAD = 25
+_BASE_CUTOFF_DIST = 12
+_PERSON_RADIUS = 2
+_PERSON_SPREAD = 1.5
 
 
 def _interp_lon(lat: float, waypoints: list[tuple[float, float]]) -> float:
@@ -222,6 +222,20 @@ class MockState:
 
 STATE = MockState()
 
+_SHUTDOWN: asyncio.Event | None = None
+
+
+def _shutdown_event() -> asyncio.Event:
+    global _SHUTDOWN
+    if _SHUTDOWN is None:
+        _SHUTDOWN = asyncio.Event()
+    return _SHUTDOWN
+
+
+@app.on_event("shutdown")
+async def _on_shutdown() -> None:
+    _shutdown_event().set()
+
 
 def _sse(event_id: int, event: str, data: dict) -> str:
     return f"id: {event_id}\nevent: {event}\ndata: {json.dumps(data)}\n\n"
@@ -327,6 +341,7 @@ def generate_frame(
 async def _stream(request: Request):
     event_id = 0
     t = 0.0
+    shutdown = _shutdown_event()
 
     yield _sse(event_id, "config", GRID_CONFIG)
     event_id += 1
@@ -336,24 +351,36 @@ async def _stream(request: Request):
     last_scenario = STATE.scenario_id
     last_version = STATE.version
 
-    while True:
-        if await request.is_disconnected():
-            break
+    try:
+        while not shutdown.is_set():
+            if await request.is_disconnected():
+                break
 
-        if STATE.scenario_id != last_scenario:
-            yield _sse(event_id, "scenario", {"scenario_id": STATE.scenario_id})
+            if STATE.scenario_id != last_scenario:
+                yield _sse(event_id, "scenario", {"scenario_id": STATE.scenario_id})
+                event_id += 1
+                last_scenario = STATE.scenario_id
+
+            frame = generate_frame(t, STATE.scenario_id, list(STATE.people.values()))
+            yield _sse(event_id, "frame", frame)
             event_id += 1
-            last_scenario = STATE.scenario_id
+            t += 0.5
 
-        frame = generate_frame(t, STATE.scenario_id, list(STATE.people.values()))
-        yield _sse(event_id, "frame", frame)
-        event_id += 1
-        t += 0.5
-
-        last_version = await STATE.wait_for_change(
-            last_version,
-            timeout=FRAME_INTERVAL_S,
-        )
+            wait_task = asyncio.create_task(
+                STATE.wait_for_change(last_version, timeout=FRAME_INTERVAL_S),
+            )
+            shutdown_task = asyncio.create_task(shutdown.wait())
+            done, pending = await asyncio.wait(
+                {wait_task, shutdown_task},
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+            for task in pending:
+                task.cancel()
+            if shutdown_task in done:
+                break
+            last_version = wait_task.result()
+    except asyncio.CancelledError:
+        pass
 
 
 @app.get("/api/heatmap/stream")
