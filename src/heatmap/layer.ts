@@ -1,7 +1,9 @@
 import type { LayerProps } from "react-map-gl/maplibre";
 
+export const HEATMAP_LAYER_ID = "foot-traffic-heatmap";
+
 export const heatmapLayer: LayerProps = {
-  id: "foot-traffic-heatmap",
+  id: HEATMAP_LAYER_ID,
   type: "circle",
   layout: {
     "circle-sort-key": ["get", "density"],

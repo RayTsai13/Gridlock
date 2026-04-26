@@ -17,7 +17,7 @@ import type {
 import "maplibre-gl/dist/maplibre-gl.css";
 import "./App.css";
 import { useHeatmap } from "./heatmap/stream.ts";
-import { heatmapLayer } from "./heatmap/layer.ts";
+import { HEATMAP_LAYER_ID, heatmapLayer } from "./heatmap/layer.ts";
 import { DEPLOY_STEPS, stopsToGeoJSON, linesToGeoJSON } from "./stops/data.ts";
 import type { TransitStop, TransitLine } from "./stops/data.ts";
 import {
@@ -74,6 +74,19 @@ type BuildingRegion = {
   url: string;
   bounds: Bounds;
 };
+
+type DemandTooltip = {
+  x: number;
+  y: number;
+  demandIndex: number;
+  density: number;
+  estimatedTripsPerHour: number;
+  pressureLabel: string;
+};
+
+const DEMAND_TOOLTIP_WIDTH = 196;
+const DEMAND_TOOLTIP_HEIGHT = 122;
+const DEMAND_TOOLTIP_MARGIN = 12;
 
 const BUILDING_REGIONS: BuildingRegion[] = [
   {
@@ -328,6 +341,40 @@ const initialBounds = {
   north: 47.6195,
 };
 
+function clampNumber(value: number, min: number, max: number) {
+  return Math.min(max, Math.max(min, value));
+}
+
+function demandMetricsFromDensity(density: number) {
+  const normalizedDensity = clampNumber(density, 0, 1);
+  const demandIndex = Math.round(normalizedDensity * 100);
+  const estimatedTripsPerHour = Math.round(
+    (45 + Math.pow(normalizedDensity, 1.35) * 4200) / 10,
+  ) * 10;
+
+  let pressureLabel = "Quiet";
+  if (demandIndex >= 82) {
+    pressureLabel = "Severe";
+  } else if (demandIndex >= 64) {
+    pressureLabel = "High";
+  } else if (demandIndex >= 42) {
+    pressureLabel = "Elevated";
+  } else if (demandIndex >= 20) {
+    pressureLabel = "Moderate";
+  }
+
+  return {
+    demandIndex,
+    density: normalizedDensity,
+    estimatedTripsPerHour,
+    pressureLabel,
+  };
+}
+
+function formatDemandNumber(value: number) {
+  return new Intl.NumberFormat("en-US").format(value);
+}
+
 function App() {
   const {
     geojson: heatmapData,
@@ -346,6 +393,9 @@ function App() {
   // Deploy state: index of the highest deployed step (0 = Line 1 only)
   const [deployedIndex, setDeployedIndex] = useState(0);
   const [isHeatmapVisible, setIsHeatmapVisible] = useState(true);
+  const [demandTooltip, setDemandTooltip] = useState<DemandTooltip | null>(
+    null,
+  );
 
   // Building state
   const [regionCollections, setRegionCollections] = useState<
@@ -769,6 +819,50 @@ function App() {
     [deployNextStep, nextStep],
   );
 
+  const handleMapMouseMove = useCallback(
+    (e: MapLayerMouseEvent) => {
+      if (!isHeatmapVisible) {
+        setDemandTooltip(null);
+        return;
+      }
+
+      let hoveredDensity = Number.NaN;
+      for (const feature of e.features ?? []) {
+        if (feature.layer.id !== HEATMAP_LAYER_ID) continue;
+        const density = Number(feature.properties?.density ?? 0);
+        if (density > hoveredDensity || Number.isNaN(hoveredDensity)) {
+          hoveredDensity = density;
+        }
+      }
+
+      if (!Number.isFinite(hoveredDensity)) {
+        setDemandTooltip(null);
+        return;
+      }
+
+      const container = mapRef.current?.getContainer();
+      const width = container?.clientWidth ?? window.innerWidth;
+      const height = container?.clientHeight ?? window.innerHeight;
+      const x = clampNumber(
+        e.point.x + 14,
+        DEMAND_TOOLTIP_MARGIN,
+        width - DEMAND_TOOLTIP_WIDTH - DEMAND_TOOLTIP_MARGIN,
+      );
+      const y = clampNumber(
+        e.point.y - DEMAND_TOOLTIP_HEIGHT - 14,
+        DEMAND_TOOLTIP_MARGIN,
+        height - DEMAND_TOOLTIP_HEIGHT - DEMAND_TOOLTIP_MARGIN,
+      );
+
+      setDemandTooltip({
+        x,
+        y,
+        ...demandMetricsFromDensity(hoveredDensity),
+      });
+    },
+    [isHeatmapVisible],
+  );
+
   // ── Time controls ──
   const updateTimeFromPointer = useCallback((clientX: number, clientY: number) => {
     if (!dialRef.current) return selectedTimeRef.current;
@@ -907,12 +1001,13 @@ function App() {
   // Interactive layer IDs for click detection
   const interactiveLayerIds = useMemo(
     () => [
+      ...(isHeatmapVisible ? [HEATMAP_LAYER_ID] : []),
       "transit-stops-circle",
       "transit-stops-dot",
       "deploy-pulse-ring",
       "deploy-glow-dot",
     ],
-    [],
+    [isHeatmapVisible],
   );
 
   const handleMapLoad = useCallback(
@@ -935,12 +1030,14 @@ function App() {
         style={{ width: "100vw", height: "100vh" }}
         onClick={handleMapClick}
         onMove={handleMapMove}
+        onMouseMove={handleMapMouseMove}
+        onMouseLeave={() => setDemandTooltip(null)}
         onLoad={handleMapLoad}
         onMoveEnd={(event) =>
           updateBuildingsForViewport(event.target as unknown as MapRef)
         }
         interactiveLayerIds={interactiveLayerIds}
-        cursor={nextStep ? "pointer" : undefined}
+        cursor={demandTooltip || nextStep ? "pointer" : undefined}
         maxBounds={cameraMaxBounds}
         maxPitch={isPitchLocked ? 0 : 85}
         renderWorldCopies={false}
@@ -961,7 +1058,12 @@ function App() {
 
         <button
           className={`heatmap-toggle-button ${isHeatmapVisible ? "is-active" : ""}`}
-          onClick={() => setIsHeatmapVisible((current) => !current)}
+          onClick={() => {
+            if (isHeatmapVisible) {
+              setDemandTooltip(null);
+            }
+            setIsHeatmapVisible((current) => !current);
+          }}
           type="button"
           aria-label={isHeatmapVisible ? "Hide heatmap" : "Show heatmap"}
           aria-pressed={isHeatmapVisible}
@@ -1054,6 +1156,36 @@ function App() {
           </Marker>
         )}
       </Map>
+
+      {demandTooltip && (
+        <div
+          className="demand-tooltip"
+          style={{
+            left: `${demandTooltip.x}px`,
+            top: `${demandTooltip.y}px`,
+          }}
+        >
+          <div className="demand-tooltip-header">
+            <span>Transit Demand</span>
+            <strong>{demandTooltip.pressureLabel}</strong>
+          </div>
+          <div className="demand-index-row">
+            <span>Index</span>
+            <strong>{demandTooltip.demandIndex}</strong>
+          </div>
+          <div className="demand-meter" aria-hidden="true">
+            <span style={{ width: `${demandTooltip.demandIndex}%` }} />
+          </div>
+          <div className="demand-tooltip-grid">
+            <span>Est. trips/hr</span>
+            <strong>
+              {formatDemandNumber(demandTooltip.estimatedTripsPerHour)}
+            </strong>
+            <span>Density</span>
+            <strong>{demandTooltip.density.toFixed(2)}</strong>
+          </div>
+        </div>
+      )}
 
       {/* Off-screen arrow pointing toward the deploy node */}
       {offscreenArrow && nextStep?.label && (
