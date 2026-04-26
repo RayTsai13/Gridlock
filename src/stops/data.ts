@@ -47,7 +47,7 @@ export const LINE_1_STOPS: TransitStop[] = [
   { id: 'id-chinatown',   name: 'Intl District / Chinatown', coordinates: [-122.3278, 47.5983] },
   { id: 'stadium',        name: 'Stadium',                   coordinates: [-122.3275, 47.5911] },
   { id: 'sodo',           name: 'SODO',                      coordinates: [-122.3271, 47.5807] },
-  { id: 'beacon-hill',    name: 'Beacon Hill',               coordinates: [-122.3118, 47.5684] },
+  { id: 'beacon-hill',    name: 'Beacon Hill',               coordinates: [-122.3115, 47.5793] },
   { id: 'mount-baker',    name: 'Mount Baker',               coordinates: [-122.2975, 47.5764] },
   { id: 'columbia-city',  name: 'Columbia City',             coordinates: [-122.2922, 47.5599] },
   { id: 'othello',        name: 'Othello',                   coordinates: [-122.2812, 47.5383] },
