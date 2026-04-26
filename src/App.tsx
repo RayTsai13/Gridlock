@@ -7,7 +7,7 @@ import {
   Marker,
 } from "react-map-gl/maplibre";
 import type { FeatureCollection, Geometry, Point } from "geojson";
-import type { Map as MapLibreMap } from "maplibre-gl";
+import type { LngLatBoundsLike, Map as MapLibreMap } from "maplibre-gl";
 import type { LayerProps } from "react-map-gl/maplibre";
 import type {
   MapLayerMouseEvent,
@@ -132,6 +132,46 @@ const BUILDING_REGIONS: BuildingRegion[] = [
     },
   },
 ];
+
+const CAMERA_BOUNDARY_PADDING_DEGREES = 0.003;
+
+function mergeBoundsList(boundsList: Bounds[]) {
+  const firstBounds = boundsList[0];
+  if (!firstBounds) {
+    throw new Error("Camera boundary requires at least one building region.");
+  }
+
+  return boundsList.slice(1).reduce<Bounds>(
+    (merged, bounds) => ({
+      west: Math.min(merged.west, bounds.west),
+      south: Math.min(merged.south, bounds.south),
+      east: Math.max(merged.east, bounds.east),
+      north: Math.max(merged.north, bounds.north),
+    }),
+    firstBounds,
+  );
+}
+
+function padBoundsByDegrees(bounds: Bounds, padding: number) {
+  return {
+    west: bounds.west - padding,
+    south: bounds.south - padding,
+    east: bounds.east + padding,
+    north: bounds.north + padding,
+  };
+}
+
+const cameraBoundary = padBoundsByDegrees(
+  mergeBoundsList(BUILDING_REGIONS.map((region) => region.bounds)),
+  CAMERA_BOUNDARY_PADDING_DEGREES,
+);
+
+const cameraMaxBounds = [
+  cameraBoundary.west,
+  cameraBoundary.south,
+  cameraBoundary.east,
+  cameraBoundary.north,
+] satisfies LngLatBoundsLike;
 
 const REGION_LOAD_ORDER = [
   "downtown-core",
@@ -900,7 +940,9 @@ function App() {
         }
         interactiveLayerIds={interactiveLayerIds}
         cursor={nextStep ? "pointer" : undefined}
+        maxBounds={cameraMaxBounds}
         maxPitch={isPitchLocked ? 0 : 85}
+        renderWorldCopies={false}
       >
         <NavigationControl position="top-right" />
 
