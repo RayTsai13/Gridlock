@@ -78,7 +78,7 @@ export const stopCircleLayer: LayerProps = {
       10, 1.5,
       16, 3,
     ],
-    'circle-stroke-color': '#1a73e8',
+    'circle-stroke-color': ['coalesce', ['get', 'markerColor'], '#1a73e8'],
     'circle-stroke-opacity': 1,
   },
 };
@@ -94,7 +94,7 @@ export const stopDotLayer: LayerProps = {
       13, 3,
       16, 4.5,
     ],
-    'circle-color': '#1a73e8',
+    'circle-color': ['coalesce', ['get', 'markerColor'], '#1a73e8'],
     'circle-opacity': 1,
   },
 };
