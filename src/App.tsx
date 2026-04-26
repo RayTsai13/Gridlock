@@ -21,6 +21,11 @@ import { heatmapLayer } from "./heatmap/layer.ts";
 import { DEPLOY_STEPS, stopsToGeoJSON, linesToGeoJSON } from "./stops/data.ts";
 import type { TransitStop, TransitLine } from "./stops/data.ts";
 import {
+  synthesizeTrainInstances,
+  type TrainInstance,
+  useInterpolatedMinuteOfWeek,
+} from "./stops/trains.ts";
+import {
   lineCasingLayer,
   lineRouteLayer,
   stopCircleLayer,
@@ -32,6 +37,7 @@ import {
 import { DeckGLOverlay } from "./DeckGLOverlay.tsx";
 import { ScenegraphLayer } from "@deck.gl/mesh-layers";
 import { AmbientLight, DirectionalLight, LightingEffect } from "@deck.gl/core";
+import { ScatterplotLayer } from "@deck.gl/layers";
 import { Mascot } from "./Mascot.tsx";
 
 const ambientLight = new AmbientLight({
@@ -358,6 +364,7 @@ function App() {
   } | null>(null);
 
   const backendIsPlaying = playback?.is_playing ?? isPlaying;
+  const interpolatedMinuteOfWeek = useInterpolatedMinuteOfWeek(playback);
 
   useEffect(() => {
     if (!playback?.sim_time || isDraggingDial) return;
@@ -405,6 +412,70 @@ function App() {
   const linesGeoJSON = useMemo(
     () => linesToGeoJSON(activeLines, activeStops),
     [activeLines, activeStops],
+  );
+  const trainInstances = useMemo(
+    () => synthesizeTrainInstances(activeLines, interpolatedMinuteOfWeek),
+    [activeLines, interpolatedMinuteOfWeek],
+  );
+  const deckLayers = useMemo(
+    () => [
+      new ScenegraphLayer({
+        id: "space-needle-3d-v5",
+        data: [{ position: [-122.3493, 47.6205] }],
+        scenegraph: "/seattle/SPACE NEEDLE.glb",
+        getPosition: (d: { position: [number, number] }) => d.position,
+        getOrientation: [0, 0, 90],
+        getScale: [1, 1, 1],
+        sizeScale: 1.2,
+        opacity: 0.6,
+        _lighting: "pbr",
+        parameters: {
+          depthTest: true,
+        },
+      }),
+      new ScatterplotLayer({
+        id: "train-glow-layer",
+        beforeId: "transit-stops-labels",
+        data: trainInstances,
+        pickable: false,
+        radiusUnits: "pixels",
+        radiusMinPixels: 10,
+        radiusMaxPixels: 10,
+        stroked: false,
+        filled: true,
+        getPosition: (train: TrainInstance) => train.coordinates,
+        getFillColor: (train: TrainInstance) =>
+          [train.color[0], train.color[1], train.color[2], 70] as [
+            number,
+            number,
+            number,
+            number,
+          ],
+        parameters: {
+          depthTest: false,
+        },
+      }),
+      new ScatterplotLayer({
+        id: "train-head-layer",
+        beforeId: "transit-stops-labels",
+        data: trainInstances,
+        pickable: false,
+        radiusUnits: "pixels",
+        radiusMinPixels: 5,
+        radiusMaxPixels: 5,
+        stroked: true,
+        lineWidthUnits: "pixels",
+        lineWidthMinPixels: 2,
+        filled: true,
+        getPosition: (train: TrainInstance) => train.coordinates,
+        getFillColor: (train: TrainInstance) => train.color,
+        getLineColor: [245, 250, 255, 220],
+        parameters: {
+          depthTest: false,
+        },
+      }),
+    ],
+    [trainInstances],
   );
 
   // ── Building loading effects ──
@@ -871,22 +942,7 @@ function App() {
         <DeckGLOverlay
           interleaved={true}
           effects={[lightingEffect]}
-          layers={[
-            new ScenegraphLayer({
-              id: "space-needle-3d-v5",
-              data: [{ position: [-122.3493, 47.6205] }],
-              scenegraph: "/seattle/SPACE NEEDLE.glb",
-              getPosition: (d: any) => d.position,
-              getOrientation: [0, 0, 90],
-              getScale: [1, 1, 1],
-              sizeScale: 1.2,
-              opacity: 0.6, // Ghostly glow mode
-              _lighting: "pbr",
-              parameters: {
-                depthTest: true,
-              },
-            }),
-          ]}
+          layers={deckLayers}
         />
 
         <Source id="heatmap-source" type="geojson" data={heatmapData}>

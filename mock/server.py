@@ -41,6 +41,10 @@ GRID_CONFIG = {
 FRAME_INTERVAL_S = 1.0
 VALID_SCENARIO_IDS = ("line-1", "line-1-2", "line-1-2-ballard")
 DEFAULT_SCENARIO_ID = VALID_SCENARIO_IDS[0]
+MINUTES_PER_DAY = 24 * 60
+MINUTES_PER_WEEK = 7 * MINUTES_PER_DAY
+TIME_BIN_MINUTES = 30
+DEFAULT_SIM_STEP_SECONDS = 300
 
 # Hotspots are cumulative by scenario so the deploy-step UI visibly changes the
 # synthetic map as each transit expansion is enabled.
@@ -155,6 +159,84 @@ class Person:
     count: int
 
 
+@dataclass(frozen=True)
+class SimTime:
+    day_of_week: int
+    time_bin: int
+    minute_of_week: int
+
+    def to_dict(self) -> dict[str, int]:
+        return {
+            "day_of_week": self.day_of_week,
+            "time_bin": self.time_bin,
+            "minute_of_week": self.minute_of_week,
+        }
+
+
+@dataclass
+class MockPlaybackController:
+    frame_interval_seconds: float = FRAME_INTERVAL_S
+    sim_step_seconds: int = DEFAULT_SIM_STEP_SECONDS
+    time_bin_minutes: int = TIME_BIN_MINUTES
+    current_tick: int = 0
+    is_playing: bool = True
+
+    @property
+    def sim_minutes_per_second(self) -> float:
+        if self.frame_interval_seconds <= 0:
+            return 0.0
+        return (self.sim_step_seconds / 60) / self.frame_interval_seconds
+
+    @property
+    def current_time(self) -> SimTime:
+        minute_of_week = (self.current_tick * self.sim_step_seconds // 60) % MINUTES_PER_WEEK
+        minute_of_day = minute_of_week % MINUTES_PER_DAY
+        return SimTime(
+            day_of_week=minute_of_week // MINUTES_PER_DAY,
+            time_bin=(minute_of_day // self.time_bin_minutes) * self.time_bin_minutes,
+            minute_of_week=minute_of_week,
+        )
+
+    def advance(self) -> SimTime:
+        if self.is_playing:
+            self.current_tick += 1
+        return self.current_time
+
+    def set_playing(self, is_playing: bool) -> None:
+        self.is_playing = is_playing
+
+    def set_speed(self, sim_minutes_per_second: float) -> None:
+        if sim_minutes_per_second <= 0:
+            raise ValueError("sim_minutes_per_second must be positive.")
+        self.sim_step_seconds = int(round(sim_minutes_per_second * 60 * self.frame_interval_seconds))
+
+    def seek(
+        self,
+        *,
+        minute_of_week: int | None = None,
+        day_of_week: int | None = None,
+        time_bin: int | None = None,
+    ) -> SimTime:
+        if minute_of_week is None:
+            if day_of_week is None or time_bin is None:
+                raise ValueError("Provide minute_of_week or both day_of_week and time_bin.")
+            minute_of_week = (int(day_of_week) % 7) * MINUTES_PER_DAY + int(time_bin)
+        seconds = (minute_of_week % MINUTES_PER_WEEK) * 60
+        self.current_tick = seconds // self.sim_step_seconds
+        return self.current_time
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "is_playing": self.is_playing,
+            "current_tick": self.current_tick,
+            "sim_step_seconds": self.sim_step_seconds,
+            "sim_minutes_per_second": self.sim_minutes_per_second,
+            "frame_interval_seconds": self.frame_interval_seconds,
+            "time_bin_minutes": self.time_bin_minutes,
+            "sim_time": self.current_time.to_dict(),
+        }
+
+
 class MockState:
     def __init__(self) -> None:
         self.scenario_id = DEFAULT_SCENARIO_ID
@@ -221,6 +303,7 @@ class MockState:
 
 
 STATE = MockState()
+PLAYBACK = MockPlaybackController()
 
 _SHUTDOWN: asyncio.Event | None = None
 
@@ -348,8 +431,11 @@ async def _stream(request: Request):
 
     yield _sse(event_id, "scenario", {"scenario_id": STATE.scenario_id})
     event_id += 1
+    yield _sse(event_id, "playback", PLAYBACK.to_dict())
+    event_id += 1
     last_scenario = STATE.scenario_id
     last_version = STATE.version
+    last_playback_state = PLAYBACK.to_dict()
 
     try:
         while not shutdown.is_set():
@@ -362,8 +448,17 @@ async def _stream(request: Request):
                 last_scenario = STATE.scenario_id
 
             frame = generate_frame(t, STATE.scenario_id, list(STATE.people.values()))
+            frame["sim_time"] = PLAYBACK.current_time.to_dict()
             yield _sse(event_id, "frame", frame)
             event_id += 1
+
+            PLAYBACK.advance()
+            playback_state = PLAYBACK.to_dict()
+            if playback_state != last_playback_state:
+                yield _sse(event_id, "playback", playback_state)
+                event_id += 1
+                last_playback_state = playback_state
+
             t += 0.5
 
             wait_task = asyncio.create_task(
@@ -406,6 +501,43 @@ async def post_scenario(payload: dict):
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     await STATE.notify_change()
     return {"scenario_id": STATE.scenario_id}
+
+
+@app.get("/api/playback")
+async def get_playback():
+    return PLAYBACK.to_dict()
+
+
+@app.post("/api/playback")
+async def update_playback(payload: dict):
+    if "is_playing" in payload:
+        PLAYBACK.set_playing(bool(payload["is_playing"]))
+    if "sim_minutes_per_second" in payload:
+        try:
+            PLAYBACK.set_speed(float(payload["sim_minutes_per_second"]))
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+    await STATE.notify_change()
+    return PLAYBACK.to_dict()
+
+
+@app.post("/api/playback/seek")
+async def seek_playback(payload: dict):
+    try:
+        if "minute_of_week" in payload:
+            PLAYBACK.seek(minute_of_week=int(payload["minute_of_week"]))
+        else:
+            PLAYBACK.seek(
+                day_of_week=int(payload["day_of_week"]),
+                time_bin=int(payload["time_bin"]),
+            )
+    except (KeyError, ValueError) as exc:
+        raise HTTPException(
+            status_code=400,
+            detail="Seek payload must include minute_of_week or day_of_week and time_bin.",
+        ) from exc
+    await STATE.notify_change()
+    return PLAYBACK.to_dict()
 
 
 @app.post("/api/people", status_code=201)
