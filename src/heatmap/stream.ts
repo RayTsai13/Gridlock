@@ -1,7 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { FeatureCollection, Point } from 'geojson';
-import { buildCentroidLookup, emptyGrid, frameToGeoJSON } from './grid.ts';
-import type { GridConfig, Frame } from './grid.ts';
+import {
+  buildCentroidLookup,
+  emptyGrid,
+  frameToGeoJSON,
+  frameToHeatmapRaster,
+} from './grid.ts';
+import type { GridConfig, Frame, HeatmapRaster } from './grid.ts';
 import {
   deleteAllPeople,
   deletePerson,
@@ -17,6 +22,7 @@ const STREAM_URL = '/api/heatmap/stream';
 
 export type HeatmapApi = {
   geojson: FeatureCollection<Point>;
+  raster: HeatmapRaster | null;
   /** Last scenario_id confirmed by the server via a `scenario` event. */
   scenarioId: string | null;
   playback: PlaybackState | null;
@@ -44,6 +50,7 @@ export type HeatmapDiagnostics = {
 
 export function useHeatmap(): HeatmapApi {
   const [geojson, setGeojson] = useState<FeatureCollection<Point>>(emptyGrid());
+  const [raster, setRaster] = useState<HeatmapRaster | null>(null);
   const [scenarioId, setScenarioId] = useState<string | null>(null);
   const [playback, setPlaybackState] = useState<PlaybackState | null>(null);
   const [diagnostics, setDiagnostics] = useState<HeatmapDiagnostics>({
@@ -111,10 +118,16 @@ export function useHeatmap(): HeatmapApi {
       if (!centroidsRef.current || !configRef.current) return;
       if (pendingScenarioRef.current !== null) return;
       const frame: Frame = JSON.parse(e.data as string);
-      const nextGeojson = frameToGeoJSON(frame.cells, centroidsRef.current, configRef.current.cols);
+      const nextGeojson = frameToGeoJSON(
+        frame.cells,
+        centroidsRef.current,
+        configRef.current,
+      );
+      const nextRaster = frameToHeatmapRaster(frame.cells, configRef.current);
       setGeojson(
         nextGeojson,
       );
+      setRaster(nextRaster);
       setDiagnostics((current) => ({
         ...current,
         frameCount: current.frameCount + 1,
@@ -127,6 +140,7 @@ export function useHeatmap(): HeatmapApi {
 
     source.addEventListener('clear', () => {
       setGeojson(emptyGrid());
+      setRaster(null);
       setDiagnostics((current) => ({
         ...current,
         featureCount: 0,
@@ -190,6 +204,7 @@ export function useHeatmap(): HeatmapApi {
 
   return {
     geojson,
+    raster,
     scenarioId,
     playback,
     diagnostics,

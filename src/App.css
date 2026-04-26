@@ -191,6 +191,7 @@
 
 /* ── Deploy tooltip ── */
 .deploy-tooltip {
+  appearance: none;
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -208,8 +209,19 @@
   font-size: 0.82rem;
   font-weight: 600;
   white-space: nowrap;
-  pointer-events: none;
+  pointer-events: auto;
+  cursor: pointer;
   animation: deploy-tooltip-bob 2s ease-in-out infinite;
+}
+
+.deploy-tooltip:hover {
+  background: rgba(255, 255, 255, 0.95);
+  border-color: rgba(250, 204, 21, 0.68);
+}
+
+.deploy-tooltip:focus-visible {
+  outline: 2px solid rgba(250, 204, 21, 0.9);
+  outline-offset: 3px;
 }
 
 .deploy-tooltip-icon {
@@ -223,6 +235,7 @@
 
 /* ── Off-screen arrow indicator ── */
 .offscreen-arrow {
+  appearance: none;
   position: absolute;
   z-index: 2;
   display: flex;
@@ -237,8 +250,19 @@
     0 0 12px rgba(250, 204, 21, 0.15);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
-  pointer-events: none;
+  pointer-events: auto;
+  cursor: pointer;
   animation: offscreen-pulse 1.5s ease-in-out infinite;
+}
+
+.offscreen-arrow:hover {
+  background: rgba(255, 255, 255, 0.94);
+  border-color: rgba(250, 204, 21, 0.72);
+}
+
+.offscreen-arrow:focus-visible {
+  outline: 2px solid rgba(250, 204, 21, 0.9);
+  outline-offset: 3px;
 }
 
 .offscreen-arrow-label {

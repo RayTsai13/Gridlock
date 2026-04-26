@@ -1,4 +1,4 @@
-const BASE_URL = '';
+const API_BASE_URL = '/api';
 
 export type PlacedPerson = {
   id: string;
@@ -24,7 +24,7 @@ export type PlaybackState = {
 };
 
 export async function postScenario(scenarioId: string): Promise<void> {
-  const res = await fetch(`${BASE_URL}/scenario`, {
+  const res = await fetch(`${API_BASE_URL}/scenario`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ scenario_id: scenarioId }),
@@ -39,7 +39,7 @@ export async function postPeople(
   lon: number,
   count = 1,
 ): Promise<PlacedPerson> {
-  const res = await fetch(`${BASE_URL}/people`, {
+  const res = await fetch(`${API_BASE_URL}/people`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ lat, lon, count }),
@@ -53,7 +53,7 @@ export async function postPeople(
 export async function postPlayback(
   updates: Partial<Pick<PlaybackState, 'is_playing' | 'sim_minutes_per_second'>>,
 ): Promise<PlaybackState> {
-  const res = await fetch(`${BASE_URL}/api/playback`, {
+  const res = await fetch(`${API_BASE_URL}/playback`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(updates),
@@ -64,8 +64,11 @@ export async function postPlayback(
   return res.json();
 }
 
-export async function seekPlayback(dayOfWeek: number, timeBin: number): Promise<PlaybackState> {
-  const res = await fetch(`${BASE_URL}/api/playback/seek`, {
+export async function seekPlayback(
+  dayOfWeek: number,
+  timeBin: number,
+): Promise<PlaybackState> {
+  const res = await fetch(`${API_BASE_URL}/playback/seek`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ day_of_week: dayOfWeek, time_bin: timeBin }),
@@ -77,14 +80,14 @@ export async function seekPlayback(dayOfWeek: number, timeBin: number): Promise<
 }
 
 export async function deletePerson(id: string): Promise<void> {
-  const res = await fetch(`${BASE_URL}/people/${id}`, { method: 'DELETE' });
+  const res = await fetch(`${API_BASE_URL}/people/${id}`, { method: 'DELETE' });
   if (!res.ok) {
     throw new Error(`DELETE /api/people/${id} failed: ${res.status}`);
   }
 }
 
 export async function deleteAllPeople(): Promise<void> {
-  const res = await fetch(`${BASE_URL}/people`, { method: 'DELETE' });
+  const res = await fetch(`${API_BASE_URL}/people`, { method: 'DELETE' });
   if (!res.ok) {
     throw new Error(`DELETE /api/people failed: ${res.status}`);
   }

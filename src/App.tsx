@@ -17,7 +17,7 @@ import type {
 import "maplibre-gl/dist/maplibre-gl.css";
 import "./App.css";
 import { useHeatmap } from "./heatmap/stream.ts";
-import { heatmapLayer } from "./heatmap/layer.ts";
+import { heatmapLayer, heatmapRasterLayer } from "./heatmap/layer.ts";
 import { DEPLOY_STEPS, stopsToGeoJSON, linesToGeoJSON } from "./stops/data.ts";
 import type { TransitStop, TransitLine } from "./stops/data.ts";
 import {
@@ -59,11 +59,6 @@ const initialViewState = {
   zoom: 15.3,
   pitch: 55,
   bearing: -18,
-};
-
-const emptyFeatureCollection: FeatureCollection<Geometry> = {
-  type: "FeatureCollection",
-  features: [],
 };
 
 type Bounds = {
@@ -296,6 +291,7 @@ const initialBounds = {
 function App() {
   const {
     geojson: heatmapData,
+    raster: heatmapRaster,
     setScenario,
     playback,
     setPlaying,
@@ -315,16 +311,11 @@ function App() {
   const [regionCollections, setRegionCollections] = useState<
     Record<string, FeatureCollection<Geometry>>
   >({});
-  const [buildings, setBuildings] = useState<FeatureCollection<Geometry>>(
-    emptyFeatureCollection,
+  const buildings = useMemo(
+    () => mergeFeatureCollections(Object.values(regionCollections)),
+    [regionCollections],
   );
   const [queryBounds, setQueryBounds] = useState(initialBounds);
-  const [queuedRegionIds, setQueuedRegionIds] = useState<string[]>(
-    REGION_LOAD_ORDER.slice(1) as unknown as string[],
-  );
-  const [activeRegionId, setActiveRegionId] = useState<string | null>(
-    REGION_LOAD_ORDER[0],
-  );
   const [regionErrors, setRegionErrors] = useState<Record<string, string>>({});
 
   useEffect(() => {
@@ -334,14 +325,21 @@ function App() {
   }, [deployedIndex, setScenario]);
 
   // Time controls
-  const [timeOfDay, setTimeOfDay] = useState(0);
-  const [isPlaying, setIsPlaying] = useState(false);
-  const [dayOfWeek, setDayOfWeek] = useState(0);
+  const [dragTimeOfDay, setDragTimeOfDay] = useState<number | null>(null);
+  const [optimisticSeek, setOptimisticSeek] = useState<{
+    dayOfWeek: number;
+    timeOfDay: number;
+  } | null>(null);
+  const [optimisticIsPlaying, setOptimisticIsPlaying] = useState<
+    boolean | null
+  >(null);
   const [hoveredDay, setHoveredDay] = useState<number | null>(null);
   const hoverTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const dialRef = useRef<HTMLDivElement>(null);
-  const selectedTimeRef = useRef(timeOfDay);
-  const selectedDayRef = useRef(dayOfWeek);
+  const selectedTimeRef = useRef(0);
+  const selectedDayRef = useRef(0);
+  const seekRequestIdRef = useRef(0);
+  const playbackRequestIdRef = useRef(0);
   const [isDraggingDial, setIsDraggingDial] = useState(false);
   const mapRef = useRef<MapRef | null>(null);
   const [offscreenArrow, setOffscreenArrow] = useState<{
@@ -363,20 +361,12 @@ function App() {
     y: number;
   } | null>(null);
 
-  const backendIsPlaying = playback?.is_playing ?? isPlaying;
+  const backendIsPlaying = optimisticIsPlaying ?? playback?.is_playing ?? false;
+  const timeOfDay =
+    dragTimeOfDay ?? optimisticSeek?.timeOfDay ?? playback?.sim_time.time_bin ?? 0;
+  const dayOfWeek =
+    optimisticSeek?.dayOfWeek ?? playback?.sim_time.day_of_week ?? 0;
   const interpolatedMinuteOfWeek = useInterpolatedMinuteOfWeek(playback);
-
-  useEffect(() => {
-    if (!playback?.sim_time || isDraggingDial) return;
-    setDayOfWeek(playback.sim_time.day_of_week);
-    setTimeOfDay(playback.sim_time.time_bin);
-  }, [playback?.sim_time, isDraggingDial]);
-
-  useEffect(() => {
-    if (playback) {
-      setIsPlaying(playback.is_playing);
-    }
-  }, [playback]);
 
   useEffect(() => {
     selectedTimeRef.current = timeOfDay;
@@ -479,76 +469,45 @@ function App() {
   );
 
   // ── Building loading effects ──
-  useEffect(() => {
-    setBuildings(mergeFeatureCollections(Object.values(regionCollections)));
-  }, [regionCollections]);
-
-  useEffect(() => {
-    const loadedRegionIds = Object.keys(regionCollections);
+  const pendingRegionIds = useMemo(() => {
+    const loadedRegionIds = new Set(Object.keys(regionCollections));
     const inViewRegionIds = BUILDING_REGIONS.filter((region) =>
       intersectsBounds(region.bounds, queryBounds),
     ).map((region) => region.id);
-    const pendingRegionIds = sortRegionIds([
+
+    return sortRegionIds([
       ...inViewRegionIds,
       ...REGION_LOAD_ORDER,
     ]).filter(
-      (regionId) =>
-        !loadedRegionIds.includes(regionId) &&
-        regionId !== activeRegionId &&
-        !regionErrors[regionId],
+      (regionId) => !loadedRegionIds.has(regionId) && !regionErrors[regionId],
     );
+  }, [queryBounds, regionCollections, regionErrors]);
 
-    setQueuedRegionIds((current) =>
-      sortRegionIds([
-        ...current.filter(
-          (regionId) =>
-            !loadedRegionIds.includes(regionId) &&
-            regionId !== activeRegionId &&
-            !regionErrors[regionId],
-        ),
-        ...pendingRegionIds,
-      ]),
-    );
-  }, [activeRegionId, queryBounds, regionCollections, regionErrors]);
+  const loadingRegionId = pendingRegionIds[0] ?? null;
+  const loadingRegion = useMemo(
+    () =>
+      loadingRegionId
+        ? BUILDING_REGIONS.find((region) => region.id === loadingRegionId) ?? null
+        : null,
+    [loadingRegionId],
+  );
 
   useEffect(() => {
-    if (activeRegionId !== null || queuedRegionIds.length === 0) {
-      return;
-    }
-
-    setActiveRegionId(queuedRegionIds[0]);
-    setQueuedRegionIds((current) => current.slice(1));
-  }, [activeRegionId, queuedRegionIds]);
-
-  useEffect(() => {
-    if (activeRegionId === null) {
-      return undefined;
-    }
-
-    const region = BUILDING_REGIONS.find(
-      (candidate) => candidate.id === activeRegionId,
-    );
-    if (!region) {
-      setActiveRegionId(null);
+    if (loadingRegion === null) {
       return undefined;
     }
 
     const controller = new AbortController();
-    setRegionErrors((current) => {
-      const next = { ...current };
-      delete next[activeRegionId];
-      return next;
-    });
 
-    void fetchRegionBuildings(region, controller.signal)
+    void fetchRegionBuildings(loadingRegion, controller.signal)
       .then((featureCollection) => {
         setRegionCollections((current) => ({
           ...current,
-          [region.id]: featureCollection,
+          [loadingRegion.id]: featureCollection,
         }));
         setRegionErrors((current) => {
           const next = { ...current };
-          delete next[region.id];
+          delete next[loadingRegion.id];
           return next;
         });
       })
@@ -557,20 +516,15 @@ function App() {
           console.error(error);
           setRegionErrors((current) => ({
             ...current,
-            [region.id]: "Error",
+            [loadingRegion.id]: "Error",
           }));
         }
-      })
-      .finally(() => {
-        setActiveRegionId((current) =>
-          current === region.id ? null : current,
-        );
       });
 
     return () => {
       controller.abort();
     };
-  }, [activeRegionId, queryBounds]);
+  }, [loadingRegion]);
 
   function updateBuildingsForViewport(map: MapRef) {
     const nextBounds = boundsFromMap(map);
@@ -714,34 +668,79 @@ function App() {
     }
   };
 
+  const deployNextStep = useCallback(() => {
+    setDeployedIndex((current) =>
+      Math.min(current + 1, DEPLOY_STEPS.length - 1),
+    );
+  }, []);
+
+  const requestSeek = useCallback(
+    (nextDayOfWeek: number, nextTimeOfDay: number) => {
+      const requestId = seekRequestIdRef.current + 1;
+      seekRequestIdRef.current = requestId;
+      setOptimisticSeek({
+        dayOfWeek: nextDayOfWeek,
+        timeOfDay: nextTimeOfDay,
+      });
+
+      return seekTo(nextDayOfWeek, nextTimeOfDay).finally(() => {
+        if (seekRequestIdRef.current === requestId) {
+          setOptimisticSeek(null);
+        }
+      });
+    },
+    [seekTo],
+  );
+
+  const requestPlaying = useCallback(
+    (nextIsPlaying: boolean) => {
+      const requestId = playbackRequestIdRef.current + 1;
+      playbackRequestIdRef.current = requestId;
+      setOptimisticIsPlaying(nextIsPlaying);
+
+      return setPlaying(nextIsPlaying).finally(() => {
+        if (playbackRequestIdRef.current === requestId) {
+          setOptimisticIsPlaying(null);
+        }
+      });
+    },
+    [setPlaying],
+  );
+
   // ── Map click handler — deploy on trigger click ──
   const handleMapClick = useCallback(
     (e: MapLayerMouseEvent) => {
       if (!nextStep) return;
-      const features = e.features;
-      if (features && features.length > 0) {
-        setDeployedIndex((prev) => prev + 1);
+      const clickedDeployTarget = e.features?.some((feature) =>
+        feature.layer.id === "deploy-pulse-ring" ||
+        feature.layer.id === "deploy-glow-dot",
+      );
+      if (clickedDeployTarget) {
+        deployNextStep();
       }
     },
-    [nextStep],
+    [deployNextStep, nextStep],
   );
 
   // ── Time controls ──
-  const updateTimeFromPointer = (clientX: number, clientY: number) => {
-    if (!dialRef.current) return timeOfDay;
-    const rect = dialRef.current.getBoundingClientRect();
-    const cx = rect.left + rect.width / 2;
-    const cy = rect.top + rect.height / 2;
-    const angle = Math.atan2(clientY - cy, clientX - cx);
-    let shiftedAngle = angle + Math.PI / 2;
-    if (shiftedAngle < 0) shiftedAngle += 2 * Math.PI;
-    let newTime = Math.round((shiftedAngle / (2 * Math.PI)) * 1440);
-    newTime = Math.round(newTime / 30) * 30;
-    if (newTime >= 1440) newTime = 0;
-    selectedTimeRef.current = newTime;
-    setTimeOfDay(newTime);
-    return newTime;
-  };
+  const updateTimeFromPointer = useCallback(
+    (clientX: number, clientY: number) => {
+      if (!dialRef.current) return selectedTimeRef.current;
+      const rect = dialRef.current.getBoundingClientRect();
+      const cx = rect.left + rect.width / 2;
+      const cy = rect.top + rect.height / 2;
+      const angle = Math.atan2(clientY - cy, clientX - cx);
+      let shiftedAngle = angle + Math.PI / 2;
+      if (shiftedAngle < 0) shiftedAngle += 2 * Math.PI;
+      let newTime = Math.round((shiftedAngle / (2 * Math.PI)) * 1440);
+      newTime = Math.round(newTime / 30) * 30;
+      if (newTime >= 1440) newTime = 0;
+      selectedTimeRef.current = newTime;
+      setDragTimeOfDay(newTime);
+      return newTime;
+    },
+    [],
+  );
 
   useEffect(() => {
     const handlePointerMove = (e: PointerEvent) => {
@@ -750,8 +749,11 @@ function App() {
     };
 
     const handlePointerUp = () => {
+      const nextDayOfWeek = selectedDayRef.current;
+      const nextTimeOfDay = selectedTimeRef.current;
       setIsDraggingDial(false);
-      seekTo(selectedDayRef.current, selectedTimeRef.current).catch((err) => {
+      setDragTimeOfDay(null);
+      requestSeek(nextDayOfWeek, nextTimeOfDay).catch((err) => {
         console.warn("[heatmap] failed to seek playback", err);
       });
     };
@@ -764,7 +766,7 @@ function App() {
       window.removeEventListener("pointermove", handlePointerMove);
       window.removeEventListener("pointerup", handlePointerUp);
     };
-  }, [isDraggingDial]);
+  }, [isDraggingDial, requestSeek, updateTimeFromPointer]);
 
   // ── Crowd Drop Pointer Events ──
   useEffect(() => {
@@ -811,14 +813,14 @@ function App() {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.code === "Space") {
         e.preventDefault();
-        setPlaying(!backendIsPlaying).catch((err) => {
+        requestPlaying(!backendIsPlaying).catch((err) => {
           console.warn("[heatmap] failed to update playback", err);
         });
       }
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [backendIsPlaying, setPlaying]);
+  }, [backendIsPlaying, requestPlaying]);
 
   const formatTime = (minutes: number) => {
     const hours = Math.floor(minutes / 60);
@@ -945,6 +947,17 @@ function App() {
           layers={deckLayers}
         />
 
+        {heatmapRaster && (
+          <Source
+            id="heatmap-raster-source"
+            type="image"
+            url={heatmapRaster.url}
+            coordinates={heatmapRaster.coordinates}
+          >
+            <Layer {...heatmapRasterLayer} />
+          </Source>
+        )}
+
         <Source id="heatmap-source" type="geojson" data={heatmapData}>
           <Layer {...heatmapLayer} />
         </Source>
@@ -974,27 +987,36 @@ function App() {
             anchor="bottom"
             offset={[0, -30]}
           >
-            <div className="deploy-tooltip">
+            <button
+              className="deploy-tooltip"
+              onClick={(event) => {
+                event.stopPropagation();
+                deployNextStep();
+              }}
+              type="button"
+            >
               <span className="deploy-tooltip-icon">⚡</span>
               <span>{nextStep.label}</span>
-            </div>
+            </button>
           </Marker>
         )}
       </Map>
 
       {/* Off-screen arrow pointing toward the deploy node */}
       {offscreenArrow && nextStep?.label && (
-        <div
+        <button
           className="offscreen-arrow"
+          onClick={deployNextStep}
           style={{
             left: `${offscreenArrow.x}px`,
             top: `${offscreenArrow.y}px`,
             transform: `translate(-50%, -50%) rotate(${offscreenArrow.angle}deg)`,
           }}
+          type="button"
         >
           <span className="offscreen-arrow-label">{nextStep.label}</span>
           <span className="offscreen-arrow-chevron">›</span>
-        </div>
+        </button>
       )}
 
       {/* Dragging Reticle */}
@@ -1067,9 +1089,9 @@ function App() {
                 { "--x": `${x}px`, "--y": `${y}px` } as React.CSSProperties
               }
               onClick={() => {
+                const nextTimeOfDay = selectedTimeRef.current;
                 selectedDayRef.current = index;
-                setDayOfWeek(index);
-                seekTo(index, selectedTimeRef.current).catch((err) => {
+                requestSeek(index, nextTimeOfDay).catch((err) => {
                   console.warn("[heatmap] failed to seek playback day", err);
                 });
               }}
@@ -1143,7 +1165,7 @@ function App() {
                 className="dial-play-btn"
                 onClick={(e) => {
                   e.stopPropagation();
-                  setPlaying(!backendIsPlaying).catch((err) => {
+                  requestPlaying(!backendIsPlaying).catch((err) => {
                     console.warn("[heatmap] failed to update playback", err);
                   });
                 }}

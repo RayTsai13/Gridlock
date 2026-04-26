@@ -7,7 +7,7 @@ from dataclasses import dataclass
 
 MINUTES_PER_DAY = 24 * 60
 MINUTES_PER_WEEK = 7 * MINUTES_PER_DAY
-DEFAULT_SIM_STEP_SECONDS = 300
+DEFAULT_SIM_STEP_SECONDS = 1800
 
 
 @dataclass(frozen=True)
