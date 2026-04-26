@@ -65,6 +65,17 @@ Then open:
 
 The frontend is served by `nginx` and proxies `/api/*` to the FastAPI backend inside the compose network.
 
+On a server or droplet, run detached and verify backend health:
+
+```bash
+docker compose up -d --build
+docker compose ps
+curl http://127.0.0.1/healthz
+```
+
+The `backend` service now exposes an internal `/healthz` endpoint and Docker
+marks it `healthy` only when that endpoint responds successfully.
+
 ## Heatmap Servers
 
 Two implementations of the SSE contract live in this repo:
@@ -122,7 +133,6 @@ Typical heatmap-data flow:
 2. Train or evaluate the Seattle heatmap model
 
 See [`seattle/README.md`](seattle/README.md) for the Seattle workspace layout and commands.
-
 
 
 

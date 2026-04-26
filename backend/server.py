@@ -98,6 +98,19 @@ async def heatmap_stream(request: Request):
     )
 
 
+@app.get("/healthz")
+async def healthz():
+    return {
+        "status": "ok",
+        "scenario_id": STATE.scenario_id,
+        "grid": {
+            "rows": STATE.grid.rows,
+            "cols": STATE.grid.cols,
+        },
+        "people_count": len(STATE.people),
+    }
+
+
 @app.post("/api/scenario")
 async def post_scenario(payload: dict):
     scenario_id = payload.get("scenario_id")
