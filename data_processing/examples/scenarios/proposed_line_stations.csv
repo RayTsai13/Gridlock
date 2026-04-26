@@ -1,0 +1,4 @@
+sequence,station_id,station_name,lat,lon,hour,scheduled_trains
+1,proposed_station_a,Proposed Station A,47.5900,-122.3300,8,8
+2,proposed_station_b,Proposed Station B,47.6050,-122.3200,8,8
+3,proposed_station_c,Proposed Station C,47.6200,-122.3100,8,8

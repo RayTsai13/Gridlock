@@ -1,8 +1,8 @@
 # Data Pipeline Architecture and Dispersion Model Plan
 
-This document describes the current data-processing architecture for training a city-generic heatmap timelapse model from Delhi Metro passenger-per-train data, then applying that learned behavior to station vectors and GTFS supply from other cities such as Seattle.
+This document describes the current data-processing architecture for training a city-generic relative demand heatmap from Delhi Metro passenger-per-train data, then applying that learned behavior to station vectors and GTFS supply from other cities such as Seattle.
 
-The repository now contains both the reusable station-vector foundation and a Delhi-trained grid timelapse path. The older Seattle-only heatmap baseline remains available as a local proxy model.
+The repository now contains both the reusable station-vector foundation and a Delhi-weak-supervised demand heatmap path. The older Seattle-only heatmap baseline and passenger-flow timelapse scorer remain available as proxy models.
 
 ## Goals
 
@@ -22,7 +22,7 @@ data_processing/
       io_utils.py          # cached downloads, directory creation, CSV writes
       station_utils.py     # station cleaning, station ids, GTFS stop aggregation, scores
       geo_utils.py         # station buffers and population-density vectors
-      gtfs_utils.py        # GTFS extraction and station-hour frequency helpers
+      gtfs_utils.py        # GTFS extraction and station time-bin frequency helpers
       heatmap_utils.py     # grid, distance exposure, and scenario helpers
     pipelines/
       common/
@@ -37,6 +37,7 @@ data_processing/
         build_station_vectors.py
         build_heatmap_dataset.py
     models/
+      train_demand_heatmap_model.py
       train_heatmap_model.py
       train_heatmap_timelapse_model.py
   scripts/
@@ -49,13 +50,18 @@ data_processing/
   curr_data/
     raw/
     processed/
+      features/
+      model_outputs/
+      scenarios/
 ```
 
-Pipeline defaults point at `curr_data/raw` and `curr_data/processed`. Use `scripts/download_raw_data.py` to populate the raw cache before running pipeline modules. `scripts/download_raw_data.sh` is only a thin compatibility wrapper. Delhi GTFS is optional and can be supplied via `--delhi-gtfs-url` or `--kaggle-delhi-gtfs-dataset`; if omitted, the Delhi frequency builder emits zero-frequency fallback rows.
+Pipeline defaults point at `curr_data/raw` and the staged `curr_data/processed` tree. `features/` holds reusable feature artifacts, `model_outputs/` holds metrics and scored outputs, and `scenarios/` holds generated scenario overlays. Use `scripts/download_raw_data.py` to populate the raw cache before running pipeline modules. `scripts/download_raw_data.sh` is only a thin compatibility wrapper. Delhi GTFS is optional and can be supplied via `--delhi-gtfs-url` or `--kaggle-delhi-gtfs-dataset`; if omitted, the Delhi frequency builder emits zero-frequency fallback rows.
 
 The Puget Sound GTFS feed is multimodal, so station-only work should first run `scripts/filter_gtfs_station_data.py`. It writes `gtfs_stations/` from raw `gtfs/`, keeping `route_type` 0, 1, and 2 plus Sound Transit `agency_id` 40. This excludes buses, ferries, Seattle Streetcar, Seattle Center Monorail, and Amtrak rows. Raw `gtfs/` remains the immutable source cache.
 
 For repeatable local runs, `scripts/build_features.py`, `scripts/train_models.py`, and `scripts/test_scenarios.py` orchestrate the common build, training, and scenario smoke-test commands.
+
+`scripts/build_line_weights.py` supports proposed-line analysis from an ordered station-coordinate CSV. It creates grid-level corridor weights and helper scenario overlays from planned station coordinates, without requiring a full GTFS feed for the proposed line. By default it rebuilds the scenario candidate table so existing station and frequency exposure fields are recomputed around the new line. The line weights are not just corridor proximity: the script trains the Delhi weak-supervised demand model, scores candidate cells as learned demand potential, lets planned stations inherit nearby learned demand plus residential/office/activity/service context, and gives the line network value from connecting multiple demand nodes plus transfer/junction potential.
 
 ## Current Architecture
 
@@ -121,8 +127,8 @@ Process:
 
 Output:
 
-- `curr_data/processed/delhi_station_density.csv`
-- `curr_data/processed/delhi_population_vector_summary.json`
+- `curr_data/processed/features/delhi_station_density.csv`
+- `curr_data/processed/features/delhi_population_vector_summary.json`
 
 Current summary:
 
@@ -137,7 +143,7 @@ Current summary:
 Inputs:
 
 - `curr_data/raw/delhi_metro_updated.csv`
-- `curr_data/processed/delhi_station_density.csv`
+- `curr_data/processed/features/delhi_station_density.csv`
 
 The raw trip CSV is downloaded by `scripts/download_raw_data.py` from the Kaggle dataset `nikhilkumar766/delhi-metro-dataset`, extracted from the archive, cached as `curr_data/raw/delhi_metro_updated.csv`, and validated for the required trip columns. If Kaggle requires authentication in a container, set `KAGGLE_USERNAME` and `KAGGLE_KEY`, or pass `--delhi-trips-url` with a direct CSV URL.
 
@@ -170,8 +176,8 @@ Process:
 
 Outputs:
 
-- `curr_data/processed/delhi_station_vectors.csv`
-- `curr_data/processed/delhi_trip_features.csv`
+- `curr_data/processed/features/delhi_station_vectors.csv`
+- `curr_data/processed/features/delhi_trip_features.csv`
 
 The trip feature file is the main supervised-learning input. Its label is `target_passengers`.
 
@@ -188,9 +194,9 @@ Process:
 
 Outputs:
 
-- `curr_data/processed/delhi_train_features.csv`
-- `curr_data/processed/delhi_test_features.csv`
-- `curr_data/processed/delhi_train_test_summary.json`
+- `curr_data/processed/features/delhi_train_features.csv`
+- `curr_data/processed/features/delhi_test_features.csv`
+- `curr_data/processed/features/delhi_train_test_summary.json`
 
 Current summary:
 
@@ -225,8 +231,8 @@ Process:
 
 Output:
 
-- `curr_data/processed/seattle_station_vectors.csv`
-- `curr_data/processed/seattle_station_vector_summary.json`
+- `curr_data/processed/features/seattle_station_vectors.csv`
+- `curr_data/processed/features/seattle_station_vector_summary.json`
 
 Current summary:
 
@@ -263,8 +269,8 @@ src.pipelines.seattle.build_heatmap_dataset
 
 The output includes:
 
-- `curr_data/processed/seattle_heatmap_features.csv`
-- `curr_data/processed/seattle_heatmap_grid.geojson`
+- `curr_data/processed/features/seattle_heatmap_features.csv`
+- `curr_data/processed/features/seattle_heatmap_grid.geojson`
 
 `src.models.train_heatmap_model` trains a baseline `HistGradientBoostingRegressor` on rows where `target_count > 0`. This is a proxy congestion model, not the future Delhi-trained station dispersion model.
 
@@ -274,9 +280,9 @@ Current baseline metrics:
 - MAE: 24.92.
 - RMSE: 35.56.
 
-### 3. City-Generic Heatmap Timelapse Pipeline
+### 3. City-Generic Demand Heatmap Pipeline
 
-This is the current Delhi-trained transfer path for a 24x7 heatmap.
+This is the current Delhi-weak-supervised transfer path for a 48 half-hour-bin x 7-day relative demand heatmap.
 
 ```text
 Delhi trip features
@@ -291,10 +297,11 @@ src.pipelines.delhi.build_heatmap_training_dataset
         +--> delhi_heatmap_training_features.csv
                     |
                     v
-            src.models.train_heatmap_timelapse_model
+            src.models.train_demand_heatmap_model
                     ^
                     |
 City station vectors + station-only GTFS
+Optional office/jobs grid features
         |
         v
 src.pipelines.common.build_heatmap_candidates
@@ -307,24 +314,30 @@ The Delhi label is interpreted as `load_per_train`, not station activity. Traini
 - Calendar and context flags.
 - Census-derived residential-density proxy fields from station vectors.
 - Transit proximity exposure and station connectivity exposure.
-- Station-hour scheduled train frequency when Delhi GTFS is available.
+- Station time-bin scheduled train frequency when Delhi GTFS is available.
+- Temporal land-use fields such as `residential_temporal_demand`, `office_temporal_demand`, and `commute_demand_score`.
 
-Because the Delhi trip data is not hourly, the training builder maps trip context into representative hours: peak trips are expanded to peak hours, off-peak trips to off-peak hours, weekend trips to weekend activity hours, and normal trips to morning/midday/evening anchors. At scoring time, GTFS scheduled frequency converts `predicted_load_per_train` into `predicted_hourly_flow`.
+Because the Delhi trip data is not time-binned, the training builder maps trip context into representative half-hour bins: peak trips are expanded to peak bins, off-peak trips to off-peak bins, weekend trips to weekend activity bins, and normal trips to morning/midday/evening anchors. Delhi passenger-per-train labels weakly supervise relative demand pressure; outputs are not calibrated ridership counts.
 
 Scenario behavior is split into two stages:
 
 - Route/station/frequency changes rebuild `city_heatmap_candidate_features.csv` with `--added-stations-csv`, `--removed-stations-csv`, or `--frequency-delta-csv`.
-- Event surplus users are added during model scoring from a CSV with event location, day, hour window, surplus users, radius, and decay.
+- Event surplus users are added during model scoring from a CSV with event location, day, hour or minute window, surplus users, radius, and decay. Hour windows are expanded to 30-minute bins; `start_minute`/`end_minute` can target exact half-hour windows. By default the total surplus is conserved while dissipating through four trailing half-hour bins with a 0.5 per-bin temporal decay. Spatial allocation is weighted by event proximity, station access, scheduled service, proposed-line network value, and baseline learned demand pressure.
+- Proposed-line coordinates can be converted into grid corridor weights with `scripts/build_line_weights.py`. These weights expose `nearest_line_distance_m`, `line_distance_weight`, `line_station_weight`, `line_combined_weight`, `line_connected_demand`, `line_junction_weight`, `line_network_value`, and `line_service_weight`.
+
+The current demand model feature vector includes both the original station fields and proposed-line fields. Rows without a proposed line are zero-filled for line fields. Candidate scoring also applies residential/office temporal demand shaping: residential demand is emphasized on weekends and commute periods, while office demand is emphasized on weekday workday and commute periods. Land-use demand, event allocation, and proposed-line catchments use the same shared dispersion weight: station access, scheduled service, proposed-line network value, learned baseline demand pressure, and commute demand. Office demand uses `employment_jobs` when available, usually from LEHD. Scenario deltas compare raw demand-pressure values, while map outputs use normalized `demand_score`. Caveat: the Delhi training data does not contain observed proposed-line openings, event surges, or local office commute labels, so those effects are transparent access/service/network-weighted heuristics layered on top of weakly supervised demand, not learned causal estimates.
 
 Primary outputs:
 
-- `curr_data/processed/delhi_station_gtfs_frequency.csv`
-- `curr_data/processed/delhi_heatmap_training_features.csv`
-- `curr_data/processed/city_heatmap_candidate_features.csv`
-- `curr_data/processed/heatmap_timelapse_predictions.csv`
-- `curr_data/processed/heatmap_timelapse_scenario_predictions.csv`
-- `curr_data/processed/heatmap_timelapse_model_metrics.json`
-- `curr_data/processed/heatmap_timelapse_grid.geojson`
+- `curr_data/processed/features/delhi_station_gtfs_frequency.csv`
+- `curr_data/processed/features/delhi_heatmap_training_features.csv`
+- `curr_data/processed/features/city_heatmap_candidate_features.csv`
+- `curr_data/processed/model_outputs/demand_heatmap_predictions.csv`
+- `curr_data/processed/model_outputs/demand_heatmap_scenario_predictions.csv`
+- `curr_data/processed/model_outputs/demand_heatmap_model_metrics.json`
+- `curr_data/processed/model_outputs/demand_heatmap_grid.geojson`
+
+The prediction CSV is the canonical final timelapse artifact because it keeps every `cell_id`, `day_of_week`, and `time_bin`. `demand_heatmap_grid.geojson` is an aggregated map-display export with one feature per grid cell.
 
 ## Shared Station Vector Schema
 
@@ -379,10 +392,10 @@ The future dispersion model should start from this table because it already expr
 Current usage is feature generation and baseline modeling:
 
 - Delhi raw trips become trip-level supervised examples and station connectivity inputs; passenger counts remain labels.
-- Delhi trip labels train the city-generic timelapse model as passenger load per train.
+- Delhi trip labels weakly supervise the city-generic demand heatmap model.
 - Seattle station vectors are built in the same schema as Delhi vectors for transfer, comparison, or demo scoring.
 - Seattle heatmap features are used by a baseline model that predicts `target_count` for grid cells with sparse observations.
-- The GeoJSON heatmap grid is intended for map visualization.
+- The CSV predictions are intended for timelapse playback; GeoJSON heatmap grids are intended for map visualization and static summaries.
 
 ## Future Dispersion Model Plan
 
@@ -401,8 +414,8 @@ The Seattle data supports transfer because each Seattle station can be represent
 
 Create a new training script, for example `train_dispersion_model.py`, that reads:
 
-- `curr_data/processed/delhi_train_features.csv`
-- `curr_data/processed/delhi_test_features.csv`
+- `curr_data/processed/features/delhi_train_features.csv`
+- `curr_data/processed/features/delhi_test_features.csv`
 
 Initial target:
 
@@ -506,7 +519,7 @@ Useful calibration sources:
 - GTFS departures as supply constraints.
 - Station boardings if available from a transit agency.
 - Pedestrian or bike counters near stations.
-- Event, employment, or land-use data.
+- Event attendance plus nearby station entries, employment, or land-use data.
 - Known route topology or transfer stations.
 
 Calibration options:
@@ -534,7 +547,7 @@ Possible integration:
 
 - Some Delhi trip station names may not match the coordinate/density source, leaving missing `lat`, `lon`, or density fields.
 - Delhi `activity_score` and Seattle `activity_score` share the same density/connectivity proxy recipe, but Delhi connectivity is OD-link based unless a reliable Delhi Metro GTFS/service feed is supplied.
-- Delhi GTFS frequency is optional because a stable public DMRC GTFS URL is not bundled. Without it, training still predicts load per train, but Delhi scheduled-train features are zero and hourly flow depends on the scored city's GTFS.
+- Delhi GTFS frequency is optional because a stable public DMRC GTFS URL is not bundled. Without it, training still learns relative demand from station/census/trip context, but Delhi scheduled-train features are zero.
 - Seattle station vectors are filtered GTFS station/rail stop based, not a direct equivalent of Delhi Metro station topology.
 - The current heatmap model has only 168 observed target rows, so it should be treated as a demo proxy.
 - A transferred model should be reported as relative demand or dispersion unless calibrated against local labels.
@@ -542,8 +555,8 @@ Possible integration:
 ## Recommended Next Implementation Steps
 
 1. Find or curate a trustworthy Delhi Metro GTFS/service-frequency source and run `src.pipelines.delhi.build_gtfs_frequency` with it.
-2. Calibrate transferred hourly flow against any local ridership, boardings, counters, or event attendance data available for the target city.
+2. Calibrate relative demand scores against any local ridership, boardings/alightings, APC or fare-card taps, counters, LODES home-work flows, or event attendance plus nearby station entries available for the target city.
 3. Add route-shape exposure, not only station/frequency exposure, so new routes can affect cells between stops more directly.
-4. Add a map-facing export that tiles or compresses the 24x7 prediction CSV for fast frontend playback.
+4. Add a map-facing export that tiles or compresses the 48-bin x 7 prediction CSV for fast frontend playback.
 5. Keep the older OD-dispersion idea as a separate layer if the UI needs station-to-station arcs in addition to grid heat.
 

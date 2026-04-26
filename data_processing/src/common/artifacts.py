@@ -9,6 +9,10 @@ DEFAULT_RAW_DIR = Path("curr_data/raw")
 DEFAULT_PROCESSED_DIR = Path("curr_data/processed")
 DEFAULT_GTFS_DIR = Path("gtfs")
 
+PROCESSED_FEATURES_DIR = "features"
+PROCESSED_MODEL_OUTPUTS_DIR = "model_outputs"
+PROCESSED_SCENARIOS_DIR = "scenarios"
+
 DELHI_TRIPS_CSV = "delhi_metro_updated.csv"
 DELHI_STATION_COORDINATES_CSV = "delhi_metro_station_coordinates.csv"
 DELHI_WARDS_GEOJSON = "delhi_wards.geojson"
@@ -48,3 +52,8 @@ HEATMAP_TIMELAPSE_MODEL_METRICS_JSON = "heatmap_timelapse_model_metrics.json"
 HEATMAP_TIMELAPSE_PREDICTIONS_CSV = "heatmap_timelapse_predictions.csv"
 HEATMAP_TIMELAPSE_SCENARIO_PREDICTIONS_CSV = "heatmap_timelapse_scenario_predictions.csv"
 HEATMAP_TIMELAPSE_GRID_GEOJSON = "heatmap_timelapse_grid.geojson"
+
+DEMAND_HEATMAP_MODEL_METRICS_JSON = "demand_heatmap_model_metrics.json"
+DEMAND_HEATMAP_PREDICTIONS_CSV = "demand_heatmap_predictions.csv"
+DEMAND_HEATMAP_SCENARIO_PREDICTIONS_CSV = "demand_heatmap_scenario_predictions.csv"
+DEMAND_HEATMAP_GRID_GEOJSON = "demand_heatmap_grid.geojson"

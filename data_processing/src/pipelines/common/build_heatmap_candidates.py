@@ -47,8 +47,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output-name", default=CITY_HEATMAP_CANDIDATE_FEATURES_CSV)
     parser.add_argument("--grid-output-name", default=HEATMAP_TIMELAPSE_GRID_GEOJSON)
     parser.add_argument("--cell-size-m", type=int, default=500)
+    parser.add_argument("--time-bin-minutes", type=int, default=30, help="Timelapse interval size.")
     parser.add_argument("--bbox", help="Optional bbox as min_lon,min_lat,max_lon,max_lat.")
     parser.add_argument("--decay-m", type=float, default=800.0, help="Distance decay for station exposure.")
+    parser.add_argument(
+        "--office-features-csv",
+        default=str(DEFAULT_PROCESSED_DIR / "seattle_heatmap_features.csv"),
+        help="Optional grid features with employment_jobs used as office demand signal.",
+    )
     parser.add_argument(
         "--route-types",
         default=",".join(str(route_type) for route_type in DEFAULT_STATION_ROUTE_TYPES),
@@ -103,27 +109,52 @@ def load_frequency(
     delta_csv: str | None,
     route_types: tuple[int, ...] | None,
     agency_ids: tuple[str, ...] | None,
+    bin_minutes: int,
 ) -> pd.DataFrame:
     station_ids = sorted(stations["station_id"].dropna().astype(str).unique())
     if all((gtfs_dir / name).exists() for name in ["stops.txt", "stop_times.txt", "trips.txt"]):
         frequency = build_station_hourly_frequency(
-            gtfs_dir, station_ids=station_ids, route_types=route_types, agency_ids=agency_ids
+            gtfs_dir,
+            station_ids=station_ids,
+            route_types=route_types,
+            agency_ids=agency_ids,
+            bin_minutes=bin_minutes,
         )
     else:
-        full_index = pd.MultiIndex.from_product([station_ids, range(24)], names=["station_id", "hour"])
+        bins = list(range(0, 1440, bin_minutes))
+        full_index = pd.MultiIndex.from_product([station_ids, bins], names=["station_id", "time_bin"])
         frequency = full_index.to_frame(index=False)
+        frequency["hour"] = (frequency["time_bin"] // 60).astype(int)
+        frequency["minute"] = (frequency["time_bin"] % 60).astype(int)
         frequency["scheduled_trains"] = 0
         frequency["daily_scheduled_trains"] = 0
         frequency["has_gtfs_frequency"] = 0
 
     if delta_csv:
         delta = pd.read_csv(delta_csv)
-        required = {"station_id", "hour", "scheduled_trains_delta"}
+        required = {"station_id", "scheduled_trains_delta"}
         missing = required.difference(delta.columns)
         if missing:
             raise ValueError(f"--frequency-delta-csv missing columns: {', '.join(sorted(missing))}")
-        delta["hour"] = pd.to_numeric(delta["hour"], errors="coerce").astype(int)
-        frequency = frequency.merge(delta, on=["station_id", "hour"], how="left")
+        if "time_bin" not in delta:
+            if "hour" not in delta:
+                raise ValueError("--frequency-delta-csv must include hour or time_bin")
+            delta["hour"] = pd.to_numeric(delta["hour"], errors="coerce").fillna(0).astype(int)
+            if "minute" in delta:
+                delta["time_bin"] = delta["hour"] * 60 + pd.to_numeric(
+                    delta["minute"], errors="coerce"
+                ).fillna(0).astype(int)
+            else:
+                repeats = []
+                for row in delta.itertuples(index=False):
+                    base = int(row.hour) * 60
+                    for offset in range(0, 60, bin_minutes):
+                        values = row._asdict()
+                        values["time_bin"] = base + offset
+                        repeats.append(values)
+                delta = pd.DataFrame(repeats)
+        delta["time_bin"] = pd.to_numeric(delta["time_bin"], errors="coerce").astype(int)
+        frequency = frequency.merge(delta, on=["station_id", "time_bin"], how="left")
         frequency["scheduled_trains_delta"] = pd.to_numeric(
             frequency["scheduled_trains_delta"], errors="coerce"
         ).fillna(0)
@@ -141,7 +172,13 @@ def load_frequency(
     return frequency
 
 
-def frequency_exposure(grid: pd.DataFrame, stations: pd.DataFrame, frequency: pd.DataFrame, decay_m: float) -> pd.DataFrame:
+def frequency_exposure(
+    grid: pd.DataFrame,
+    stations: pd.DataFrame,
+    frequency: pd.DataFrame,
+    decay_m: float,
+    bin_minutes: int,
+) -> pd.DataFrame:
     grid_lat = grid["center_lat"].to_numpy()[:, None]
     grid_lon = grid["center_lon"].to_numpy()[:, None]
     station_lat = pd.to_numeric(stations["lat"], errors="coerce").to_numpy()[None, :]
@@ -151,27 +188,98 @@ def frequency_exposure(grid: pd.DataFrame, stations: pd.DataFrame, frequency: pd
     station_ids = stations["station_id"].astype(str).tolist()
 
     hourly = (
-        frequency.pivot_table(index="station_id", columns="hour", values="scheduled_trains", aggfunc="sum")
+        frequency.pivot_table(index="station_id", columns="time_bin", values="scheduled_trains", aggfunc="sum")
         .reindex(station_ids)
         .fillna(0)
     )
-    for hour in range(24):
-        if hour not in hourly:
-            hourly[hour] = 0
-    hourly = hourly[range(24)]
+    bins = list(range(0, 1440, bin_minutes))
+    for time_bin in bins:
+        if time_bin not in hourly:
+            hourly[time_bin] = 0
+    hourly = hourly[bins]
     hourly_exposure = weights @ hourly.to_numpy()
     daily = hourly.sum(axis=1).to_numpy()
     daily_exposure = weights @ daily
 
     rows = []
-    for hour in range(24):
+    for index, time_bin in enumerate(bins):
         frame = grid[["cell_id"]].copy()
-        frame["hour"] = hour
-        frame["scheduled_trains"] = hourly_exposure[:, hour]
+        frame["time_bin"] = time_bin
+        frame["hour"] = time_bin // 60
+        frame["minute"] = time_bin % 60
+        frame["scheduled_trains"] = hourly_exposure[:, index]
         frame["daily_scheduled_trains"] = daily_exposure
         frame["has_gtfs_frequency"] = (frame["daily_scheduled_trains"] > 0).astype(int)
         rows.append(frame)
     return pd.concat(rows, ignore_index=True)
+
+
+def office_exposure(grid: pd.DataFrame, office_features_csv: str | None, decay_m: float) -> pd.DataFrame:
+    result = grid[["cell_id"]].copy()
+    result["distance_weighted_office_jobs"] = 0.0
+    result["office_jobs_nearby"] = 0.0
+    if not office_features_csv:
+        return result
+    path = Path(office_features_csv)
+    if not path.exists() or path.stat().st_size == 0:
+        return result
+    office = pd.read_csv(path, usecols=lambda col: col in {"cell_id", "center_lat", "center_lon", "employment_jobs"})
+    if not {"center_lat", "center_lon", "employment_jobs"}.issubset(office.columns):
+        return result
+    office = (
+        office[["cell_id", "center_lat", "center_lon", "employment_jobs"]]
+        .drop_duplicates("cell_id")
+        .dropna(subset=["center_lat", "center_lon"])
+    )
+    office["employment_jobs"] = pd.to_numeric(office["employment_jobs"], errors="coerce").fillna(0)
+    office = office[office["employment_jobs"] > 0]
+    if office.empty:
+        return result
+
+    grid_lat = grid["center_lat"].to_numpy()[:, None]
+    grid_lon = grid["center_lon"].to_numpy()[:, None]
+    office_lat = office["center_lat"].to_numpy()[None, :]
+    office_lon = office["center_lon"].to_numpy()[None, :]
+    distances = haversine_m(grid_lat, grid_lon, office_lat, office_lon)
+    weights = np.exp(-distances / decay_m)
+    jobs = office["employment_jobs"].to_numpy()
+    result["distance_weighted_office_jobs"] = weights @ jobs
+    result["office_jobs_nearby"] = ((distances <= 1000) * jobs).sum(axis=1)
+    return result
+
+
+def add_temporal_land_use_demand(candidates: pd.DataFrame) -> pd.DataFrame:
+    result = candidates.copy()
+    residential = pd.to_numeric(result["distance_weighted_residential_density"], errors="coerce").fillna(0)
+    office = pd.to_numeric(result.get("distance_weighted_office_jobs", 0), errors="coerce").fillna(0)
+    residential_factor = np.select(
+        [
+            result["is_weekend"] == 1,
+            result["is_morning_commute"] == 1,
+            result["is_evening_commute"] == 1,
+            result["is_workday_midday"] == 1,
+            result["is_off_peak"] == 1,
+        ],
+        [1.10, 1.15, 1.20, 0.75, 0.50],
+        default=0.90,
+    )
+    office_factor = np.select(
+        [
+            result["is_weekend"] == 1,
+            result["is_morning_commute"] == 1,
+            result["is_evening_commute"] == 1,
+            result["is_workday_midday"] == 1,
+            result["is_off_peak"] == 1,
+        ],
+        [0.25, 1.20, 1.20, 1.00, 0.10],
+        default=0.60,
+    )
+    result["residential_temporal_demand"] = residential * residential_factor
+    result["office_temporal_demand"] = office * office_factor
+    result["commute_demand_score"] = (
+        result["residential_temporal_demand"] + result["office_temporal_demand"]
+    )
+    return result
 
 
 def main() -> None:
@@ -185,15 +293,26 @@ def main() -> None:
     grid, _ = build_grid(bbox, args.cell_size_m)
     exposure = build_station_exposure(grid, stations, decay_m=args.decay_m)
     frequency = load_frequency(
-        Path(args.gtfs_dir), stations, args.frequency_delta_csv, route_types, agency_ids
+        Path(args.gtfs_dir),
+        stations,
+        args.frequency_delta_csv,
+        route_types,
+        agency_ids,
+        args.time_bin_minutes,
     )
-    freq_exposure = frequency_exposure(grid, stations, frequency, args.decay_m)
+    freq_exposure = frequency_exposure(grid, stations, frequency, args.decay_m, args.time_bin_minutes)
+    offices = office_exposure(grid, args.office_features_csv, args.decay_m)
 
     base = grid[["cell_id", "center_lat", "center_lon", "row", "col", "min_lat", "min_lon", "max_lat", "max_lon"]]
-    candidates = base.merge(exposure, on="cell_id", how="left").merge(freq_exposure, on="cell_id", how="left")
+    candidates = (
+        base.merge(exposure, on="cell_id", how="left")
+        .merge(offices, on="cell_id", how="left")
+        .merge(freq_exposure, on="cell_id", how="left")
+    )
     days = pd.DataFrame({"day_of_week": range(7)})
     candidates = candidates.merge(days, how="cross")
     candidates = add_hour_context(candidates)
+    candidates = add_temporal_land_use_demand(candidates)
     output_path = write_csv(candidates, out_dir / args.output_name)
     write_grid_geojson(grid, out_dir / args.grid_output_name)
     print(
@@ -202,6 +321,7 @@ def main() -> None:
                 "rows": int(len(candidates)),
                 "grid_cells": int(grid["cell_id"].nunique()),
                 "stations": int(len(stations)),
+                "time_bin_minutes": args.time_bin_minutes,
                 "route_types": list(route_types) if route_types is not None else "all",
                 "agency_ids": list(agency_ids) if agency_ids is not None else "all",
                 "output": str(output_path),

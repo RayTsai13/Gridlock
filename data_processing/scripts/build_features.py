@@ -16,6 +16,10 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Build Delhi and Seattle feature artifacts.")
     parser.add_argument("--raw-dir", default="curr_data/raw")
     parser.add_argument("--processed-dir", default="curr_data/processed")
+    parser.add_argument(
+        "--features-dir",
+        help="Feature output directory. Defaults to <processed-dir>/features.",
+    )
     parser.add_argument("--gtfs-dir", default="gtfs", help="Raw Puget Sound GTFS directory.")
     parser.add_argument(
         "--station-gtfs-dir",
@@ -27,7 +31,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--agency-ids", default="40", help="Sound Transit agency_id by default.")
     parser.add_argument("--radius-m", type=int, default=1000)
     parser.add_argument("--cell-size-m", type=int, default=500)
+    parser.add_argument("--time-bin-minutes", type=int, default=30)
     parser.add_argument("--fremont-limit", type=int, default=5000)
+    parser.add_argument("--include-lehd", action="store_true", help="Add LEHD jobs for office-demand signal.")
+    parser.add_argument("--lehd-year", type=int, default=2022)
     parser.add_argument("--skip-download", action="store_true", help="Do not refresh raw data first.")
     parser.add_argument("--skip-seattle-heatmap", action="store_true")
     return parser.parse_args()
@@ -47,6 +54,7 @@ def main() -> None:
     args = parse_args()
     raw_dir = args.raw_dir
     processed_dir = args.processed_dir
+    features_dir = args.features_dir or f"{processed_dir}/features"
 
     if not args.skip_download:
         run(py("scripts/download_raw_data.py", "--raw-dir", raw_dir, "--gtfs-dir", args.gtfs_dir))
@@ -72,7 +80,7 @@ def main() -> None:
             "--raw-dir",
             raw_dir,
             "--out-dir",
-            processed_dir,
+            features_dir,
             "--radius-m",
             str(args.radius_m),
         )
@@ -84,9 +92,9 @@ def main() -> None:
             "--input",
             f"{raw_dir}/delhi_metro_updated.csv",
             "--out-dir",
-            processed_dir,
+            features_dir,
             "--density-vectors",
-            f"{processed_dir}/delhi_station_density.csv",
+            f"{features_dir}/delhi_station_density.csv",
         )
     )
     run(
@@ -94,9 +102,9 @@ def main() -> None:
             "-m",
             "src.pipelines.delhi.prepare_train_test",
             "--features-csv",
-            f"{processed_dir}/delhi_trip_features.csv",
+            f"{features_dir}/delhi_trip_features.csv",
             "--out-dir",
-            processed_dir,
+            features_dir,
         )
     )
     run(
@@ -106,11 +114,13 @@ def main() -> None:
             "--gtfs-dir",
             args.delhi_gtfs_dir,
             "--station-vectors",
-            f"{processed_dir}/delhi_station_vectors.csv",
+            f"{features_dir}/delhi_station_vectors.csv",
             "--out-dir",
-            processed_dir,
+            features_dir,
             "--route-types",
             args.route_types,
+            "--time-bin-minutes",
+            str(args.time_bin_minutes),
         )
     )
     run(
@@ -118,13 +128,15 @@ def main() -> None:
             "-m",
             "src.pipelines.delhi.build_heatmap_training_dataset",
             "--trip-features",
-            f"{processed_dir}/delhi_trip_features.csv",
+            f"{features_dir}/delhi_trip_features.csv",
             "--station-vectors",
-            f"{processed_dir}/delhi_station_vectors.csv",
+            f"{features_dir}/delhi_station_vectors.csv",
             "--frequency-csv",
-            f"{processed_dir}/delhi_station_gtfs_frequency.csv",
+            f"{features_dir}/delhi_station_gtfs_frequency.csv",
             "--out-dir",
-            processed_dir,
+            features_dir,
+            "--time-bin-minutes",
+            str(args.time_bin_minutes),
         )
     )
 
@@ -137,7 +149,7 @@ def main() -> None:
             "--raw-dir",
             raw_dir,
             "--out-dir",
-            processed_dir,
+            features_dir,
             "--radius-m",
             str(args.radius_m),
             "--route-types",
@@ -148,39 +160,44 @@ def main() -> None:
     )
 
     if not args.skip_seattle_heatmap:
-        run(
-            py(
-                "-m",
-                "src.pipelines.seattle.build_heatmap_dataset",
-                "--gtfs-dir",
-                args.station_gtfs_dir,
-                "--raw-dir",
-                raw_dir,
-                "--out-dir",
-                processed_dir,
-                "--cell-size-m",
-                str(args.cell_size_m),
-                "--fremont-limit",
-                str(args.fremont_limit),
-                "--route-types",
-                args.route_types,
-                "--agency-ids",
-                args.agency_ids,
-            )
+        seattle_heatmap_command = py(
+            "-m",
+            "src.pipelines.seattle.build_heatmap_dataset",
+            "--gtfs-dir",
+            args.station_gtfs_dir,
+            "--raw-dir",
+            raw_dir,
+            "--out-dir",
+            features_dir,
+            "--cell-size-m",
+            str(args.cell_size_m),
+            "--fremont-limit",
+            str(args.fremont_limit),
+            "--route-types",
+            args.route_types,
+            "--agency-ids",
+            args.agency_ids,
         )
+        if args.include_lehd:
+            seattle_heatmap_command.extend(["--include-lehd", "--lehd-year", str(args.lehd_year)])
+        run(seattle_heatmap_command)
 
     run(
         py(
             "-m",
             "src.pipelines.common.build_heatmap_candidates",
             "--station-vectors",
-            f"{processed_dir}/seattle_station_vectors.csv",
+            f"{features_dir}/seattle_station_vectors.csv",
             "--gtfs-dir",
             args.station_gtfs_dir,
             "--out-dir",
-            processed_dir,
+            features_dir,
             "--cell-size-m",
             str(args.cell_size_m),
+            "--time-bin-minutes",
+            str(args.time_bin_minutes),
+            "--office-features-csv",
+            f"{features_dir}/seattle_heatmap_features.csv",
             "--route-types",
             args.route_types,
             "--agency-ids",

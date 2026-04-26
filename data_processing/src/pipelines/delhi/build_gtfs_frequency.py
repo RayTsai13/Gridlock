@@ -35,6 +35,7 @@ def parse_args() -> argparse.Namespace:
         help="Delhi station vectors used as the canonical station universe.",
     )
     parser.add_argument("--out-dir", default=str(DEFAULT_PROCESSED_DIR), help="Output directory.")
+    parser.add_argument("--time-bin-minutes", type=int, default=30, help="Frequency interval size.")
     parser.add_argument(
         "--route-types",
         default=",".join(str(route_type) for route_type in DEFAULT_STATION_ROUTE_TYPES),
@@ -79,8 +80,11 @@ def main() -> None:
 
     if not all((gtfs_dir / name).exists() for name in ["stops.txt", "stop_times.txt", "trips.txt"]):
         station_ids = sorted(vectors["station_id"].dropna().astype(str).unique())
-        full_index = pd.MultiIndex.from_product([station_ids, range(24)], names=["station_id", "hour"])
+        bins = list(range(0, 1440, args.time_bin_minutes))
+        full_index = pd.MultiIndex.from_product([station_ids, bins], names=["station_id", "time_bin"])
         frequency = full_index.to_frame(index=False)
+        frequency["hour"] = (frequency["time_bin"] // 60).astype(int)
+        frequency["minute"] = (frequency["time_bin"] % 60).astype(int)
         frequency["scheduled_trains"] = 0
         frequency["daily_scheduled_trains"] = 0
         frequency["has_gtfs_frequency"] = 0
@@ -91,6 +95,7 @@ def main() -> None:
                     "gtfs_available": False,
                     "route_types": list(route_types) if route_types is not None else "all",
                     "agency_ids": list(agency_ids) if agency_ids is not None else "all",
+                    "time_bin_minutes": args.time_bin_minutes,
                     "output": str(output_path),
                 },
                 indent=2,
@@ -99,7 +104,10 @@ def main() -> None:
         return
 
     raw_frequency = build_station_hourly_frequency(
-        gtfs_dir, route_types=route_types, agency_ids=agency_ids
+        gtfs_dir,
+        route_types=route_types,
+        agency_ids=agency_ids,
+        bin_minutes=args.time_bin_minutes,
     )
     lookup = station_name_lookup(vectors, gtfs_dir, route_types, agency_ids)
     frequency = raw_frequency.merge(
@@ -111,13 +119,16 @@ def main() -> None:
     )
     frequency["station_id"] = frequency["station_id"].fillna(frequency["station_id_gtfs"])
     frequency = (
-        frequency.groupby(["station_id", "hour"], as_index=False)
+        frequency.groupby(["station_id", "time_bin"], as_index=False)
         .agg(scheduled_trains=("scheduled_trains", "sum"))
     )
 
     station_ids = sorted(vectors["station_id"].dropna().astype(str).unique())
-    full_index = pd.MultiIndex.from_product([station_ids, range(24)], names=["station_id", "hour"])
-    frequency = frequency.set_index(["station_id", "hour"]).reindex(full_index, fill_value=0).reset_index()
+    bins = list(range(0, 1440, args.time_bin_minutes))
+    full_index = pd.MultiIndex.from_product([station_ids, bins], names=["station_id", "time_bin"])
+    frequency = frequency.set_index(["station_id", "time_bin"]).reindex(full_index, fill_value=0).reset_index()
+    frequency["hour"] = (frequency["time_bin"] // 60).astype(int)
+    frequency["minute"] = (frequency["time_bin"] % 60).astype(int)
     daily = frequency.groupby("station_id", as_index=False)["scheduled_trains"].sum().rename(
         columns={"scheduled_trains": "daily_scheduled_trains"}
     )
@@ -131,6 +142,7 @@ def main() -> None:
                 "stations_with_frequency": int((daily["daily_scheduled_trains"] > 0).sum()),
                 "route_types": list(route_types) if route_types is not None else "all",
                 "agency_ids": list(agency_ids) if agency_ids is not None else "all",
+                "time_bin_minutes": args.time_bin_minutes,
                 "output": str(output_path),
             },
             indent=2,

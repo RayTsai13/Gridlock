@@ -93,11 +93,19 @@ def haversine_m(lat1: np.ndarray, lon1: np.ndarray, lat2: np.ndarray, lon2: np.n
 
 def add_hour_context(rows: pd.DataFrame) -> pd.DataFrame:
     result = rows.copy()
+    if "time_bin" not in result:
+        result["time_bin"] = result["hour"] * 60
+    result["minute"] = pd.to_numeric(result["time_bin"], errors="coerce").fillna(0).astype(int) % 60
     result["is_weekend"] = result["day_of_week"].isin([5, 6]).astype(int)
     result["is_peak"] = result["hour"].isin([7, 8, 9, 16, 17, 18]).astype(int)
     result["is_off_peak"] = (~result["hour"].between(6, 21)).astype(int)
-    result["is_festival"] = 0
-    result["is_maintenance"] = 0
+    result["is_morning_commute"] = result["hour"].isin([6, 7, 8, 9]).astype(int)
+    result["is_evening_commute"] = result["hour"].isin([16, 17, 18, 19]).astype(int)
+    result["is_workday_midday"] = ((result["is_weekend"] == 0) & result["hour"].between(10, 15)).astype(int)
+    if "is_festival" not in result:
+        result["is_festival"] = 0
+    if "is_maintenance" not in result:
+        result["is_maintenance"] = 0
     return result
 
 

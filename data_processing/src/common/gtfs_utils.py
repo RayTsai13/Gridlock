@@ -46,6 +46,26 @@ def parse_gtfs_hour(value: object) -> int | None:
     return hour % 24
 
 
+def parse_gtfs_minute_of_day(value: object) -> int | None:
+    if pd.isna(value):
+        return None
+    parts = str(value).split(":")
+    if len(parts) < 2:
+        return None
+    try:
+        hour = int(parts[0]) % 24
+        minute = int(parts[1])
+    except ValueError:
+        return None
+    if minute < 0 or minute > 59:
+        return None
+    return hour * 60 + minute
+
+
+def time_bin_for_minute(minute_of_day: int, bin_minutes: int) -> int:
+    return int(minute_of_day // bin_minutes * bin_minutes)
+
+
 def extract_gtfs_archive(zip_path: Path, destination_dir: Path) -> Path:
     """Extract a GTFS zip and normalize .csv/.txt table names to standard .txt files."""
     destination_dir.mkdir(parents=True, exist_ok=True)
@@ -154,7 +174,10 @@ def build_station_hourly_frequency(
     station_ids: list[str] | None = None,
     route_types: tuple[int, ...] | None = None,
     agency_ids: tuple[str, ...] | None = None,
+    bin_minutes: int = 60,
 ) -> pd.DataFrame:
+    if 1440 % bin_minutes != 0:
+        raise ValueError("bin_minutes must divide evenly into 1440")
     stops = read_stop_station_map(gtfs_dir, route_types=route_types, agency_ids=agency_ids)[
         ["stop_id", "station_id"]
     ]
@@ -167,19 +190,25 @@ def build_station_hourly_frequency(
     trip_ids = filtered_trip_ids(gtfs_dir, route_types, agency_ids=agency_ids)
     if trip_ids is not None:
         stop_times = stop_times[stop_times["trip_id"].isin(trip_ids)]
-    stop_times["hour"] = stop_times["departure_time"].map(parse_gtfs_hour)
-    stop_times = stop_times.dropna(subset=["hour"])
-    stop_times["hour"] = stop_times["hour"].astype(int)
+    stop_times["minute_of_day"] = stop_times["departure_time"].map(parse_gtfs_minute_of_day)
+    stop_times = stop_times.dropna(subset=["minute_of_day"])
+    stop_times["minute_of_day"] = stop_times["minute_of_day"].astype(int)
+    stop_times["time_bin"] = stop_times["minute_of_day"].map(lambda value: time_bin_for_minute(value, bin_minutes))
+    stop_times["hour"] = (stop_times["time_bin"] // 60).astype(int)
+    stop_times["minute"] = (stop_times["time_bin"] % 60).astype(int)
     joined = stop_times.merge(stops, on="stop_id", how="inner")
     grouped = (
-        joined.groupby(["station_id", "hour"], as_index=False)
+        joined.groupby(["station_id", "time_bin"], as_index=False)
         .agg(scheduled_trains=("trip_id", "nunique"))
     )
 
     if station_ids is None:
         station_ids = sorted(grouped["station_id"].dropna().unique())
-    full_index = pd.MultiIndex.from_product([station_ids, range(24)], names=["station_id", "hour"])
-    result = grouped.set_index(["station_id", "hour"]).reindex(full_index, fill_value=0).reset_index()
+    bins = list(range(0, 1440, bin_minutes))
+    full_index = pd.MultiIndex.from_product([station_ids, bins], names=["station_id", "time_bin"])
+    result = grouped.set_index(["station_id", "time_bin"]).reindex(full_index, fill_value=0).reset_index()
+    result["hour"] = (result["time_bin"] // 60).astype(int)
+    result["minute"] = (result["time_bin"] % 60).astype(int)
     result["scheduled_trains"] = pd.to_numeric(result["scheduled_trains"], errors="coerce").fillna(0)
     daily = result.groupby("station_id", as_index=False)["scheduled_trains"].sum().rename(
         columns={"scheduled_trains": "daily_scheduled_trains"}

@@ -26,12 +26,17 @@ from src.common.artifacts import (
 from src.common.heatmap_utils import haversine_m, min_max, write_grid_geojson
 
 
-FEATURE_COLUMNS = [
+BASE_FEATURE_COLUMNS = [
+    "time_bin",
     "hour",
+    "minute",
     "day_of_week",
     "is_weekend",
     "is_peak",
     "is_off_peak",
+    "is_morning_commute",
+    "is_evening_commute",
+    "is_workday_midday",
     "is_festival",
     "is_maintenance",
     "nearest_station_distance_m",
@@ -40,11 +45,30 @@ FEATURE_COLUMNS = [
     "distance_weighted_station_activity",
     "distance_weighted_connectivity",
     "distance_weighted_residential_density",
+    "distance_weighted_office_jobs",
     "distance_weighted_transfer_score",
+    "residential_temporal_demand",
+    "office_temporal_demand",
+    "commute_demand_score",
     "scheduled_trains",
     "daily_scheduled_trains",
     "has_gtfs_frequency",
 ]
+
+LINE_FEATURE_COLUMNS = [
+    "nearest_line_distance_m",
+    "nearest_line_station_distance_m",
+    "line_distance_weight",
+    "line_station_weight",
+    "line_combined_weight",
+    "line_scheduled_trains",
+    "line_connected_demand",
+    "line_junction_weight",
+    "line_network_value",
+    "line_service_weight",
+]
+
+FEATURE_COLUMNS = BASE_FEATURE_COLUMNS + LINE_FEATURE_COLUMNS
 
 
 def parse_args() -> argparse.Namespace:
@@ -68,12 +92,12 @@ def parse_args() -> argparse.Namespace:
 
 
 def prepare_matrix(df: pd.DataFrame) -> pd.DataFrame:
-    missing = [column for column in FEATURE_COLUMNS if column not in df]
-    if missing:
-        raise ValueError(f"Missing feature columns: {', '.join(missing)}")
-    matrix = df[FEATURE_COLUMNS].copy()
-    for column in matrix.columns:
-        matrix[column] = pd.to_numeric(matrix[column], errors="coerce").fillna(0)
+    matrix = pd.DataFrame(index=df.index)
+    for column in FEATURE_COLUMNS:
+        if column in df:
+            matrix[column] = pd.to_numeric(df[column], errors="coerce").fillna(0)
+        else:
+            matrix[column] = 0.0
     return matrix
 
 
@@ -93,7 +117,13 @@ def train_model(training: pd.DataFrame, test_size: float, random_state: int) -> 
         "target": "load_per_train",
         "mae_load_per_train": float(mean_absolute_error(actual_load, predicted_load)),
         "rmse_load_per_train": float(math.sqrt(mean_squared_error(actual_load, predicted_load))),
-        "note": "Delhi labels are treated as passengers per train/trip; hourly flow is load multiplied by scheduled trains.",
+        "base_feature_columns": BASE_FEATURE_COLUMNS,
+        "line_feature_columns": LINE_FEATURE_COLUMNS,
+        "note": (
+            "Delhi labels are treated as passengers per train/trip. "
+            "Line features are zero-filled for rows without proposed-line weights, "
+            "and hourly flow uses scheduled trains plus line_service_weight."
+        ),
     }
     return model, metrics
 
@@ -102,7 +132,13 @@ def score_candidates(model: HistGradientBoostingRegressor, candidates: pd.DataFr
     scored = candidates.copy()
     scored["predicted_load_per_train"] = np.expm1(model.predict(prepare_matrix(scored))).clip(min=0)
     scored["scheduled_trains"] = pd.to_numeric(scored["scheduled_trains"], errors="coerce").fillna(0)
-    scored["predicted_hourly_flow"] = scored["predicted_load_per_train"] * scored["scheduled_trains"]
+    if "line_service_weight" not in scored:
+        scored["line_service_weight"] = 0.0
+    scored["line_service_weight"] = pd.to_numeric(scored["line_service_weight"], errors="coerce").fillna(0)
+    scored["effective_scheduled_trains"] = scored["scheduled_trains"] + scored["line_service_weight"]
+    scored["predicted_hourly_flow"] = (
+        scored["predicted_load_per_train"] * scored["effective_scheduled_trains"]
+    )
     scored["event_surplus_flow"] = 0.0
     scored["scenario_hourly_flow"] = scored["predicted_hourly_flow"]
     scored["demand_score"] = min_max(scored["predicted_hourly_flow"])
@@ -151,7 +187,11 @@ def apply_event_surplus(scored: pd.DataFrame, events_csv: str | None) -> pd.Data
 
 
 def scenario_delta(baseline: pd.DataFrame, scenario: pd.DataFrame) -> pd.DataFrame:
-    keys = ["cell_id", "hour", "day_of_week"]
+    keys = ["cell_id", "day_of_week"]
+    if "time_bin" in baseline.columns and "time_bin" in scenario.columns:
+        keys.append("time_bin")
+    else:
+        keys.append("hour")
     left = baseline[keys + ["predicted_hourly_flow", "demand_score"]].rename(
         columns={
             "predicted_hourly_flow": "baseline_hourly_flow",
