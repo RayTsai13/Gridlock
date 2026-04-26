@@ -4,6 +4,10 @@ services:
     build:
       context: .
       dockerfile: frontend.Dockerfile
+    depends_on:
+      - backend
+    ports:
+      - "8080:80"
 
   backend:
     image: yourdockerhubuser/seattle-transit-sim-backend:latest
