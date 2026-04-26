@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useState, useRef } from 'react';
 import { Layer, Map, NavigationControl, Source, Marker } from 'react-map-gl/maplibre';
-import type { FeatureCollection, Point } from 'geojson';
+import type { FeatureCollection, Geometry, Point } from 'geojson';
+import type { LayerProps } from 'react-map-gl/maplibre';
 import type { MapLayerMouseEvent, MapRef } from 'react-map-gl/maplibre';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import './App.css';
-import { useHeatmapStream } from './heatmap/stream.ts';
+import { useHeatmap } from './heatmap/stream.ts';
 import { heatmapLayer } from './heatmap/layer.ts';
 import {
   DEPLOY_STEPS,
@@ -30,11 +31,218 @@ const initialViewState = {
   bearing: -18,
 };
 
+const emptyFeatureCollection: FeatureCollection<Geometry> = {
+  type: 'FeatureCollection',
+  features: [],
+};
+
+type Bounds = {
+  west: number;
+  south: number;
+  east: number;
+  north: number;
+};
+
+type BuildingRegion = {
+  id: string;
+  label: string;
+  url: string;
+  bounds: Bounds;
+};
+
+const BUILDING_REGIONS: BuildingRegion[] = [
+  {
+    id: 'downtown-core',
+    label: 'Downtown Core',
+    url: '/seattle/seattle-buildings-downtown-core.geojson',
+    bounds: {
+      west: -122.37,
+      south: 47.585,
+      east: -122.308,
+      north: 47.6325,
+    },
+  },
+  {
+    id: 'east-neighborhoods',
+    label: 'East Neighborhoods',
+    url: '/seattle/seattle-buildings-east-neighborhoods.geojson',
+    bounds: {
+      west: -122.32,
+      south: 47.585,
+      east: -122.255,
+      north: 47.676,
+    },
+  },
+  {
+    id: 'northwest-seattle',
+    label: 'Northwest Seattle',
+    url: '/seattle/seattle-buildings-northwest-seattle.geojson',
+    bounds: {
+      west: -122.43,
+      south: 47.6205,
+      east: -122.322,
+      north: 47.69,
+    },
+  },
+  {
+    id: 'west-seattle',
+    label: 'West Seattle',
+    url: '/seattle/seattle-buildings-west-seattle.geojson',
+    bounds: {
+      west: -122.432,
+      south: 47.543,
+      east: -122.34,
+      north: 47.604,
+    },
+  },
+  {
+    id: 'beacon-hill',
+    label: 'Beacon Hill',
+    url: '/seattle/seattle-buildings-beacon-hill.geojson',
+    bounds: {
+      west: -122.3365,
+      south: 47.55,
+      east: -122.284,
+      north: 47.6015,
+    },
+  },
+];
+
+const REGION_LOAD_ORDER = [
+  'downtown-core',
+  'east-neighborhoods',
+  'northwest-seattle',
+  'beacon-hill',
+  'west-seattle',
+] as const;
+
+const REGION_PRIORITY = new globalThis.Map<string, number>(
+  REGION_LOAD_ORDER.map((regionId, index) => [regionId, index] as [string, number]),
+);
+
+const buildingFillLayer: LayerProps = {
+  id: 'official-seattle-buildings-fill',
+  type: 'fill-extrusion',
+  paint: {
+    'fill-extrusion-color': [
+      'interpolate',
+      ['linear'],
+      ['get', 'height_m'],
+      3,
+      '#cfe6ff',
+      15,
+      '#b7d8fb',
+      40,
+      '#97c5f6',
+      120,
+      '#79afe6',
+    ],
+    'fill-extrusion-height': ['coalesce', ['get', 'height_m'], 0],
+    'fill-extrusion-base': 0,
+    'fill-extrusion-opacity': 0.85,
+    'fill-extrusion-vertical-gradient': true,
+  },
+};
+
+async function fetchRegionBuildings(
+  region: BuildingRegion,
+  signal: AbortSignal,
+) {
+  const response = await fetch(region.url, { signal });
+  if (!response.ok) {
+    throw new Error(`${region.label} failed with ${response.status}`);
+  }
+  return response.json() as Promise<FeatureCollection<Geometry>>;
+}
+
+function expandBounds(bounds: Bounds) {
+  const lonPad = (bounds.east - bounds.west) * 0.2;
+  const latPad = (bounds.north - bounds.south) * 0.2;
+
+  return {
+    west: bounds.west - lonPad,
+    south: bounds.south - latPad,
+    east: bounds.east + lonPad,
+    north: bounds.north + latPad,
+  };
+}
+
+function boundsFromMap(map: MapRef) {
+  const bounds = map.getBounds();
+  return expandBounds({
+    west: bounds.getWest(),
+    south: bounds.getSouth(),
+    east: bounds.getEast(),
+    north: bounds.getNorth(),
+  });
+}
+
+function containsBounds(outer: Bounds, inner: Bounds) {
+  return (
+    inner.west >= outer.west &&
+    inner.south >= outer.south &&
+    inner.east <= outer.east &&
+    inner.north <= outer.north
+  );
+}
+
+function intersectsBounds(a: Bounds, b: Bounds) {
+  return !(
+    a.east < b.west ||
+    a.west > b.east ||
+    a.north < b.south ||
+    a.south > b.north
+  );
+}
+
+function mergeFeatureCollections(
+  collections: FeatureCollection<Geometry>[],
+) {
+  return {
+    type: 'FeatureCollection',
+    features: collections.flatMap((collection) => collection.features),
+  } satisfies FeatureCollection<Geometry>;
+}
+
+function sortRegionIds(regionIds: string[]) {
+  return [...new Set(regionIds)].sort(
+    (left, right) =>
+      (REGION_PRIORITY.get(left) ?? Number.MAX_SAFE_INTEGER)
+      - (REGION_PRIORITY.get(right) ?? Number.MAX_SAFE_INTEGER),
+  );
+}
+
+const initialBounds = {
+  west: -122.3525,
+  south: 47.6015,
+  east: -122.3245,
+  north: 47.6195,
+};
+
 function App() {
-  const heatmapData = useHeatmapStream();
+  const { geojson: heatmapData, setScenario } = useHeatmap();
 
   // Deploy state: index of the highest deployed step (0 = Line 1 only)
   const [deployedIndex, setDeployedIndex] = useState(0);
+
+  // Building state
+  const [regionCollections, setRegionCollections] =
+    useState<Record<string, FeatureCollection<Geometry>>>({});
+  const [buildings, setBuildings] =
+    useState<FeatureCollection<Geometry>>(emptyFeatureCollection);
+  const [queryBounds, setQueryBounds] = useState(initialBounds);
+  const [queuedRegionIds, setQueuedRegionIds] = useState<string[]>(
+    REGION_LOAD_ORDER.slice(1) as unknown as string[],
+  );
+  const [activeRegionId, setActiveRegionId] = useState<string | null>(REGION_LOAD_ORDER[0]);
+  const [buildingsError, setBuildingsError] = useState<string | null>(null);
+  const [regionErrors, setRegionErrors] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    setScenario(DEPLOY_STEPS[deployedIndex].id).catch((err) => {
+      console.warn('[heatmap] failed to set scenario', err);
+    });
+  }, [deployedIndex, setScenario]);
 
   // Time controls
   const [timeOfDay, setTimeOfDay] = useState(0);
@@ -69,7 +277,105 @@ function App() {
   const stopsGeoJSON = useMemo(() => stopsToGeoJSON(activeStops), [activeStops]);
   const linesGeoJSON = useMemo(() => linesToGeoJSON(activeLines, activeStops), [activeLines, activeStops]);
 
-  // ── Next deploy step (the one we're hinting at) ──
+  // ── Building loading effects ──
+  useEffect(() => {
+    setBuildings(mergeFeatureCollections(Object.values(regionCollections)));
+  }, [regionCollections]);
+
+  useEffect(() => {
+    const loadedRegionIds = Object.keys(regionCollections);
+    const inViewRegionIds = BUILDING_REGIONS
+      .filter((region) => intersectsBounds(region.bounds, queryBounds))
+      .map((region) => region.id);
+    const pendingRegionIds = sortRegionIds([
+      ...inViewRegionIds,
+      ...REGION_LOAD_ORDER,
+    ]).filter(
+      (regionId) =>
+        !loadedRegionIds.includes(regionId)
+        && regionId !== activeRegionId
+        && !regionErrors[regionId],
+    );
+
+    setQueuedRegionIds((current) =>
+      sortRegionIds([
+        ...current.filter(
+          (regionId) =>
+            !loadedRegionIds.includes(regionId)
+            && regionId !== activeRegionId
+            && !regionErrors[regionId],
+        ),
+        ...pendingRegionIds,
+      ]),
+    );
+  }, [activeRegionId, queryBounds, regionCollections, regionErrors]);
+
+  useEffect(() => {
+    if (activeRegionId !== null || queuedRegionIds.length === 0) {
+      return;
+    }
+
+    setActiveRegionId(queuedRegionIds[0]);
+    setQueuedRegionIds((current) => current.slice(1));
+  }, [activeRegionId, queuedRegionIds]);
+
+  useEffect(() => {
+    if (activeRegionId === null) {
+      return undefined;
+    }
+
+    const region = BUILDING_REGIONS.find((candidate) => candidate.id === activeRegionId);
+    if (!region) {
+      setActiveRegionId(null);
+      return undefined;
+    }
+
+    const controller = new AbortController();
+    setBuildingsError(null);
+    setRegionErrors((current) => {
+      const next = { ...current };
+      delete next[activeRegionId];
+      return next;
+    });
+
+    void fetchRegionBuildings(region, controller.signal)
+      .then((featureCollection) => {
+        setRegionCollections((current) => ({
+          ...current,
+          [region.id]: featureCollection,
+        }));
+        setRegionErrors((current) => {
+          const next = { ...current };
+          delete next[region.id];
+          return next;
+        });
+      })
+      .catch((error: unknown) => {
+        if (!(error instanceof DOMException && error.name === 'AbortError')) {
+          console.error(error);
+          setBuildingsError(`Could not load ${region.label}.`);
+          setRegionErrors((current) => ({
+            ...current,
+            [region.id]: 'Error',
+          }));
+        }
+      })
+      .finally(() => {
+        setActiveRegionId((current) => (current === region.id ? null : current));
+      });
+
+    return () => {
+      controller.abort();
+    };
+  }, [activeRegionId, queryBounds]);
+
+  function updateBuildingsForViewport(map: MapRef) {
+    const nextBounds = boundsFromMap(map);
+    setQueryBounds((currentBounds) =>
+      containsBounds(currentBounds, nextBounds) ? currentBounds : nextBounds,
+    );
+  }
+
   const nextStep = deployedIndex < DEPLOY_STEPS.length - 1
     ? DEPLOY_STEPS[deployedIndex + 1]
     : null;
@@ -252,10 +558,16 @@ function App() {
         style={{ width: '100vw', height: '100vh' }}
         onClick={handleMapClick}
         onMove={updateOffscreenArrow}
+        onLoad={(event) => updateBuildingsForViewport(event.target as unknown as MapRef)}
+        onMoveEnd={(event) => updateBuildingsForViewport(event.target as unknown as MapRef)}
         interactiveLayerIds={interactiveLayerIds}
         cursor={nextStep ? 'pointer' : undefined}
       >
         <NavigationControl position="top-right" />
+
+        <Source id="official-seattle-buildings" type="geojson" data={buildings}>
+          <Layer beforeId="watername_ocean" {...buildingFillLayer} />
+        </Source>
 
         <Source id="heatmap-source" type="geojson" data={heatmapData}>
           <Layer {...heatmapLayer} />

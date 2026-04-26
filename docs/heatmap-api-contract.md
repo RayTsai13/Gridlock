@@ -164,7 +164,7 @@ Content-Type: application/json
 
 ### Valid `scenario_id` values
 
-These match the IDs in [`src/stops/data.ts`](../src/stops/data.ts) `EXPANSION_MODES`:
+These match the cumulative `id` values in [`src/stops/data.ts`](../src/stops/data.ts) `DEPLOY_STEPS`:
 
 | `scenario_id`         | Description                                          |
 |-----------------------|------------------------------------------------------|

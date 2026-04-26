@@ -198,6 +198,6 @@ export type DeployStep = {
 
 export const DEPLOY_STEPS: DeployStep[] = [
   { id: 'line-1', triggerStopId: null, line: LINK_1_LINE, newStops: LINE_1_STOPS },
-  { id: 'line-2', triggerStopId: 'id-chinatown', triggerCoordinates: [-122.285, 47.589], line: LINK_2_LINE, newStops: LINE_2_STOPS, label: 'Deploy 2 Line' },
-  { id: 'ballard', triggerStopId: 'westlake', line: BALLARD_LINE, newStops: BALLARD_STOPS, label: 'Deploy Ballard Extension' },
+  { id: 'line-1-2', triggerStopId: 'id-chinatown', triggerCoordinates: [-122.285, 47.589], line: LINK_2_LINE, newStops: LINE_2_STOPS, label: 'Deploy 2 Line' },
+  { id: 'line-1-2-ballard', triggerStopId: 'westlake', triggerCoordinates: [-122.3765, 47.6700], line: BALLARD_LINE, newStops: BALLARD_STOPS, label: 'Deploy Ballard Extension' },
 ];
