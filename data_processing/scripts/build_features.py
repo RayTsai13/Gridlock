@@ -196,6 +196,8 @@ def main() -> None:
             str(args.cell_size_m),
             "--time-bin-minutes",
             str(args.time_bin_minutes),
+            "--bbox",
+            "-122.4597,47.4810,-122.2244,47.7340",
             "--office-features-csv",
             f"{features_dir}/seattle_heatmap_features.csv",
             "--route-types",

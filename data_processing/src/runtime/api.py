@@ -39,6 +39,7 @@ class HeatmapRuntime:
     scenario_state: ScenarioStateManager
     composer: FrameComposer
     frame_interval_seconds: float = 1.0
+    active_display_scenario_id: str = "state_baseline"
 
     @classmethod
     def create(
@@ -49,6 +50,9 @@ class HeatmapRuntime:
         time_bin_minutes: int = 30,
         frame_interval_seconds: float = 1.0,
         display_threshold: float = 0.0,
+        display_floor: float = 0.13,
+        display_ceiling: float = 0.75,
+        display_gamma: float = 0.75,
     ) -> "HeatmapRuntime":
         baseline = DemandFrameStore.from_predictions_csv(baseline_csv)
         clock = SimulationClock(
@@ -61,6 +65,9 @@ class HeatmapRuntime:
             scenario_state=scenario_state,
             clock=clock,
             display_threshold=display_threshold,
+            display_floor=display_floor,
+            display_ceiling=display_ceiling,
+            display_gamma=display_gamma,
         )
         return cls(
             baseline=baseline,
@@ -78,6 +85,9 @@ def create_app(
     time_bin_minutes: int = 30,
     frame_interval_seconds: float = 1.0,
     display_threshold: float = 0.0,
+    display_floor: float = 0.13,
+    display_ceiling: float = 0.75,
+    display_gamma: float = 0.75,
 ) -> FastAPI:
     runtime = HeatmapRuntime.create(
         baseline_csv=baseline_csv,
@@ -85,6 +95,9 @@ def create_app(
         time_bin_minutes=time_bin_minutes,
         frame_interval_seconds=frame_interval_seconds,
         display_threshold=display_threshold,
+        display_floor=display_floor,
+        display_ceiling=display_ceiling,
+        display_gamma=display_gamma,
     )
     app = FastAPI(title="Demand Heatmap Runtime")
     app.state.runtime = runtime
@@ -108,10 +121,49 @@ def create_app(
 
     @app.get("/api/states/current")
     async def current_state():
-        return runtime.scenario_state.to_dict(
+        state = runtime.scenario_state.to_dict(
             current_tick=runtime.clock.current_tick,
             current_sim_time=runtime.clock.current_time,
         )
+        state["active_display_scenario_id"] = runtime.active_display_scenario_id
+        return state
+
+    @app.get("/api/debug/frame")
+    async def debug_frame():
+        frame = runtime.composer.compose(
+            tick=runtime.clock.current_tick,
+            sim_time=runtime.clock.current_time,
+        )
+        densities = [float(cell[2]) for cell in frame.cells]
+        return {
+            "frame": frame.to_dict(),
+            "geojson": frame_to_geojson(frame.cells, runtime.baseline.config),
+            "summary": {
+                "cell_count": len(frame.cells),
+                "min_density": min(densities) if densities else 0.0,
+                "max_density": max(densities) if densities else 0.0,
+                "avg_density": sum(densities) / len(densities) if densities else 0.0,
+                "grid": runtime.baseline.config.to_sse_config(),
+                "value_column": runtime.baseline.value_column,
+                "display_floor": runtime.composer.display_floor,
+                "display_ceiling": runtime.composer.display_ceiling,
+                "display_gamma": runtime.composer.display_gamma,
+            },
+        }
+
+    @app.post("/api/scenario")
+    async def set_display_scenario(payload: dict[str, Any]):
+        """Compatibility endpoint for the current frontend deployment controls.
+
+        This only records the scenario id used by the UI. Demand-changing
+        scenarios still go through `POST /api/scenarios` with a precomputed
+        delta CSV.
+        """
+        scenario_id = payload.get("scenario_id")
+        if not scenario_id:
+            raise HTTPException(status_code=400, detail="Scenario payload missing scenario_id.")
+        runtime.active_display_scenario_id = str(scenario_id)
+        return {"scenario_id": runtime.active_display_scenario_id}
 
     @app.post("/api/scenarios")
     async def create_scenario(payload: dict[str, Any]):
@@ -159,18 +211,48 @@ async def stream_frames(request: Request, runtime: HeatmapRuntime):
     event_id = 0
     yield sse_event(event_id, "config", runtime.baseline.config.to_sse_config())
     event_id += 1
+    sent_display_scenario_id: str | None = None
 
-    while True:
-        if await request.is_disconnected():
-            break
-        frame = runtime.composer.next_frame()
-        yield sse_event(event_id, "frame", frame.to_dict())
-        event_id += 1
-        await asyncio.sleep(runtime.frame_interval_seconds)
+    try:
+        while True:
+            if await request.is_disconnected():
+                break
+            if sent_display_scenario_id != runtime.active_display_scenario_id:
+                sent_display_scenario_id = runtime.active_display_scenario_id
+                yield sse_event(event_id, "scenario", {"scenario_id": sent_display_scenario_id})
+                event_id += 1
+            frame = runtime.composer.next_frame()
+            yield sse_event(event_id, "frame", frame.to_dict())
+            event_id += 1
+            await asyncio.sleep(runtime.frame_interval_seconds)
+    except asyncio.CancelledError:
+        return
 
 
 def sse_event(event_id: int, event: str, payload: dict) -> str:
     return f"id: {event_id}\nevent: {event}\ndata: {json.dumps(payload)}\n\n"
+
+
+def frame_to_geojson(cells: list[list[float | int]], config) -> dict:
+    cell_width = (config.east - config.west) / config.cols
+    cell_height = (config.north - config.south) / config.rows
+    return {
+        "type": "FeatureCollection",
+        "features": [
+            {
+                "type": "Feature",
+                "geometry": {
+                    "type": "Point",
+                    "coordinates": [
+                        config.west + (int(col) + 0.5) * cell_width,
+                        config.north - (int(row) + 0.5) * cell_height,
+                    ],
+                },
+                "properties": {"density": float(density), "row": int(row), "col": int(col)},
+            }
+            for row, col, density in cells
+        ],
+    }
 
 
 def resolve_path(value: str) -> Path:

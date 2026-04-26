@@ -35,6 +35,9 @@ from src.common.heatmap_utils import (
 from src.common.io_utils import ensure_dir, write_csv
 
 
+SEATTLE_BBOX = (-122.4597, 47.4810, -122.2244, 47.7340)
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Build heatmap candidate features for a city.")
     parser.add_argument(
@@ -48,7 +51,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--grid-output-name", default=HEATMAP_TIMELAPSE_GRID_GEOJSON)
     parser.add_argument("--cell-size-m", type=int, default=500)
     parser.add_argument("--time-bin-minutes", type=int, default=30, help="Timelapse interval size.")
-    parser.add_argument("--bbox", help="Optional bbox as min_lon,min_lat,max_lon,max_lat.")
+    parser.add_argument(
+        "--bbox",
+        default=",".join(str(value) for value in SEATTLE_BBOX),
+        help=(
+            "Grid bbox as min_lon,min_lat,max_lon,max_lat. Defaults to a full Seattle "
+            "bbox; pass a city-specific bbox for other cities."
+        ),
+    )
     parser.add_argument("--decay-m", type=float, default=800.0, help="Distance decay for station exposure.")
     parser.add_argument(
         "--office-features-csv",

@@ -24,6 +24,15 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--time-bin-minutes", type=int, default=30)
     parser.add_argument("--frame-interval-seconds", type=float, default=1.0)
     parser.add_argument("--display-threshold", type=float, default=0.0)
+    parser.add_argument("--display-floor", type=float, default=0.13)
+    parser.add_argument("--display-ceiling", type=float, default=0.75)
+    parser.add_argument("--display-gamma", type=float, default=0.75)
+    parser.add_argument(
+        "--shutdown-timeout-seconds",
+        type=int,
+        default=2,
+        help="Maximum time Uvicorn waits for open SSE connections to close.",
+    )
     return parser.parse_args()
 
 
@@ -35,8 +44,16 @@ def main() -> None:
         time_bin_minutes=args.time_bin_minutes,
         frame_interval_seconds=args.frame_interval_seconds,
         display_threshold=args.display_threshold,
+        display_floor=args.display_floor,
+        display_ceiling=args.display_ceiling,
+        display_gamma=args.display_gamma,
     )
-    uvicorn.run(app, host=args.host, port=args.port)
+    uvicorn.run(
+        app,
+        host=args.host,
+        port=args.port,
+        timeout_graceful_shutdown=args.shutdown_timeout_seconds,
+    )
 
 
 if __name__ == "__main__":

@@ -36,11 +36,17 @@ class FrameComposer:
         scenario_state: ScenarioStateManager,
         clock: SimulationClock,
         display_threshold: float = 0.0,
+        display_floor: float = 0.13,
+        display_ceiling: float = 0.75,
+        display_gamma: float = 0.75,
     ) -> None:
         self.baseline = baseline
         self.scenario_state = scenario_state
         self.clock = clock
         self.display_threshold = display_threshold
+        self.display_floor = display_floor
+        self.display_ceiling = display_ceiling
+        self.display_gamma = display_gamma
 
     def next_frame(self) -> HeatmapFrame:
         sim_time = self.clock.advance()
@@ -51,17 +57,23 @@ class FrameComposer:
         for record in self.scenario_state.active_records(tick):
             values = apply_delta(values, record.delta_store.frame_for(sim_time))
 
-        cells = [
-            [row, col, round(density, 6)]
-            for (row, col), density in sorted(values.items())
-            if density > self.display_threshold
-        ]
+        cells: list[list[float | int]] = []
+        for (row, col), density in sorted(values.items()):
+            display_density = self.display_density(density)
+            if display_density > self.display_threshold:
+                cells.append([row, col, round(display_density, 6)])
         return HeatmapFrame(
             timestamp=time.time(),
             state_version=self.scenario_state.current_state_version,
             sim_time=sim_time,
             cells=cells,
         )
+
+    def display_density(self, raw_density: float) -> float:
+        if self.display_ceiling <= self.display_floor:
+            return clamp(raw_density)
+        scaled = (raw_density - self.display_floor) / (self.display_ceiling - self.display_floor)
+        return clamp(scaled) ** self.display_gamma
 
 
 def apply_delta(base: FrameValues, delta: FrameValues) -> FrameValues:
