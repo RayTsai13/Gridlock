@@ -58,7 +58,7 @@ def fetch_overpass_data(query: str, timeout: int) -> dict:
         data=query.encode("utf-8"),
         headers={
             "Content-Type": "application/x-www-form-urlencoded; charset=utf-8",
-            "User-Agent": "seattle-transit-sim/0.1",
+            "User-Agent": "gridlock/0.1",
         },
         method="POST",
     )

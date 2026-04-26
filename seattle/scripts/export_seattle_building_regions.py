@@ -80,7 +80,7 @@ def fetch_url(url: str, timeout: int = 60) -> bytes:
     request = Request(
         url,
         headers={
-            "User-Agent": "seattle-transit-sim/0.1",
+            "User-Agent": "gridlock/0.1",
             "Accept-Encoding": "gzip",
         },
     )

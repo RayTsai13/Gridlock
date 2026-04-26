@@ -24,7 +24,7 @@ from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 
-app = FastAPI(title="Seattle Transit Sim — mock heatmap server")
+app = FastAPI(title="Gridlock — mock heatmap server")
 
 app.add_middleware(
     CORSMiddleware,

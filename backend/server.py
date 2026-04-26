@@ -34,7 +34,7 @@ GEOJSON_PATH = Path(
 DENSITY_PROPERTY = os.environ.get("HEATMAP_DENSITY_PROPERTY", "congestion_score")
 FRAME_INTERVAL_S = float(os.environ.get("HEATMAP_FRAME_INTERVAL", "1.0"))
 
-app = FastAPI(title="Seattle Transit Sim — heatmap intermediary")
+app = FastAPI(title="Gridlock — heatmap intermediary")
 
 app.add_middleware(
     CORSMiddleware,
