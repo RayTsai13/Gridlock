@@ -32,6 +32,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from backend import server
+from backend.geo import haversine_m
 from backend.state import DEFAULT_SCENARIO_ID, VALID_SCENARIO_IDS, State
 
 GEOJSON_PATH = Path("seattle/data/processed/seattle_heatmap_grid.geojson")
@@ -52,9 +53,9 @@ def reset_state(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     iterations and notices the fake disconnect within the test's lifetime.
     """
     monkeypatch.setattr(server, "FRAME_INTERVAL_S", 0.02)
-    server.STATE = State(server.GRID)
+    server.STATE = State(server.GRID, frame_interval_seconds=server.FRAME_INTERVAL_S)
     yield
-    server.STATE = State(server.GRID)
+    server.STATE = State(server.GRID, frame_interval_seconds=server.FRAME_INTERVAL_S)
 
 
 @pytest.fixture
@@ -138,11 +139,11 @@ async def test_stream_endpoint_returns_event_stream_headers() -> None:
 
 
 @pytest.mark.asyncio
-async def test_sse_initial_handshake_is_config_then_scenario_then_frame() -> None:
-    """Per contract "Initial state on connect": config (once), scenario, frame."""
-    events = await drive_stream(FakeRequest(), n=3)
-    assert [e["event"] for e in events] == ["config", "scenario", "frame"]
-    assert [e["id"] for e in events] == [0, 1, 2]
+async def test_sse_initial_handshake_is_config_scenario_playback_then_frame() -> None:
+    """Initial state on connect: config, scenario, playback, then a frame."""
+    events = await drive_stream(FakeRequest(), n=4)
+    assert [e["event"] for e in events] == ["config", "scenario", "playback", "frame"]
+    assert [e["id"] for e in events] == [0, 1, 2, 3]
 
 
 @pytest.mark.asyncio
@@ -211,13 +212,15 @@ async def test_initial_scenario_event_uses_default_scenario() -> None:
 
 @pytest.mark.asyncio
 async def test_frame_payload_matches_documented_schema() -> None:
-    events = await drive_stream(FakeRequest(), n=3)
-    frame = events[2]
+    events = await drive_stream(FakeRequest(), n=4)
+    frame = events[3]
     assert frame["event"] == "frame"
 
     payload = frame["data"]
-    assert set(payload) == {"timestamp", "cells"}
+    assert set(payload) == {"timestamp", "state_version", "sim_time", "cells"}
     assert isinstance(payload["timestamp"], (int, float))
+    assert isinstance(payload["state_version"], str)
+    assert set(payload["sim_time"]) == {"day_of_week", "time_bin", "minute_of_week"}
     assert isinstance(payload["cells"], list)
 
     rows, cols = server.GRID.rows, server.GRID.cols
@@ -233,16 +236,16 @@ async def test_frame_payload_matches_documented_schema() -> None:
 @pytest.mark.asyncio
 async def test_frame_cells_are_sparse_no_zero_density() -> None:
     """Contract: cells with density == 0 may be omitted; we omit them."""
-    events = await drive_stream(FakeRequest(), n=3)
-    cells = events[2]["data"]["cells"]
+    events = await drive_stream(FakeRequest(), n=4)
+    cells = events[3]["data"]["cells"]
     assert all(density > 0 for _, _, density in cells)
 
 
 @pytest.mark.asyncio
 async def test_frame_density_reaches_unit_after_normalization() -> None:
     """At least one cell should hit the top of the [0, 1] range."""
-    events = await drive_stream(FakeRequest(), n=3)
-    cells = events[2]["data"]["cells"]
+    events = await drive_stream(FakeRequest(), n=4)
+    cells = events[3]["data"]["cells"]
     assert cells, "expected at least one nonzero cell from the source GeoJSON"
     assert max(density for _, _, density in cells) == pytest.approx(1.0)
 
@@ -334,6 +337,38 @@ def test_post_scenario_rejects_missing_field(client: TestClient) -> None:
     assert response.status_code == 400
 
 
+def test_post_scenario_accepts_active_network_payload(client: TestClient) -> None:
+    payload = {
+        "scenario_id": "line-1",
+        "stops": [
+            {
+                "id": "custom-a",
+                "name": "Custom A",
+                "coordinates": [-122.36, 47.62],
+            },
+            {
+                "id": "custom-b",
+                "name": "Custom B",
+                "coordinates": [-122.34, 47.62],
+            },
+        ],
+        "lines": [
+            {
+                "id": "custom-line",
+                "name": "Custom Line",
+                "stopIds": ["custom-a", "custom-b"],
+            },
+        ],
+    }
+    response = client.post("/api/scenario", json=payload)
+    assert response.status_code == 200
+    assert response.json() == {"scenario_id": "line-1"}
+    assert [stop.id for stop in server.STATE.active_network.stops] == [
+        "custom-a",
+        "custom-b",
+    ]
+
+
 @pytest.mark.asyncio
 async def test_scenario_post_emits_new_event_on_open_stream() -> None:
     """Per contract ``Scenario change ordering``: when the scenario changes
@@ -375,6 +410,37 @@ async def test_scenario_post_emits_new_event_on_open_stream() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Playback
+# ---------------------------------------------------------------------------
+
+
+def test_get_playback_returns_current_sim_time(client: TestClient) -> None:
+    response = client.get("/api/playback")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["is_playing"] is True
+    assert set(payload["sim_time"]) == {"day_of_week", "time_bin", "minute_of_week"}
+
+
+def test_post_playback_updates_play_state(client: TestClient) -> None:
+    response = client.post("/api/playback", json={"is_playing": False})
+    assert response.status_code == 200
+    assert response.json()["is_playing"] is False
+    assert server.STATE.playback.is_playing is False
+
+
+def test_seek_playback_moves_sim_time(client: TestClient) -> None:
+    response = client.post(
+        "/api/playback/seek",
+        json={"day_of_week": 3, "time_bin": 18 * 60},
+    )
+    assert response.status_code == 200
+    sim_time = response.json()["sim_time"]
+    assert sim_time["day_of_week"] == 3
+    assert sim_time["time_bin"] == 18 * 60
+
+
+# ---------------------------------------------------------------------------
 # /api/people
 # ---------------------------------------------------------------------------
 
@@ -385,6 +451,60 @@ def _seattle_inbounds_point() -> dict:
         "lat": (bounds.north + bounds.south) / 2,
         "lon": (bounds.east + bounds.west) / 2,
     }
+
+
+def _cell_for_point(lat: float, lon: float) -> tuple[int, int]:
+    bounds = server.GRID.bounds
+    cell_w = (bounds.east - bounds.west) / server.GRID.cols
+    cell_h = (bounds.north - bounds.south) / server.GRID.rows
+    return (
+        int((bounds.north - lat) / cell_h),
+        int((lon - bounds.west) / cell_w),
+    )
+
+
+def _cell_centers() -> list[tuple[int, int, float, float]]:
+    bounds = server.GRID.bounds
+    cell_w = (bounds.east - bounds.west) / server.GRID.cols
+    cell_h = (bounds.north - bounds.south) / server.GRID.rows
+    centers: list[tuple[int, int, float, float]] = []
+    for row in range(server.GRID.rows):
+        lat = bounds.north - (row + 0.5) * cell_h
+        for col in range(server.GRID.cols):
+            lon = bounds.west + (col + 0.5) * cell_w
+            centers.append((row, col, lat, lon))
+    return centers
+
+
+def _mean_density_near(
+    cells: list[list[int | float]],
+    *,
+    lat: float,
+    lon: float,
+    radius_m: float,
+) -> float:
+    by_cell = {(int(row), int(col)): float(density) for row, col, density in cells}
+    values = [
+        by_cell.get((row, col), 0.0)
+        for row, col, cell_lat, cell_lon in _cell_centers()
+        if haversine_m(lat, lon, cell_lat, cell_lon) <= radius_m
+    ]
+    assert values, "test location should cover at least one grid cell"
+    return sum(values) / len(values)
+
+
+def _mean_abs_frame_delta(
+    left: list[list[int | float]],
+    right: list[list[int | float]],
+) -> float:
+    left_by_cell = {(int(row), int(col)): float(density) for row, col, density in left}
+    right_by_cell = {(int(row), int(col)): float(density) for row, col, density in right}
+    total = 0.0
+    count = server.GRID.rows * server.GRID.cols
+    for row in range(server.GRID.rows):
+        for col in range(server.GRID.cols):
+            total += abs(left_by_cell.get((row, col), 0.0) - right_by_cell.get((row, col), 0.0))
+    return total / count
 
 
 def test_post_people_returns_201_and_persists(client: TestClient) -> None:
@@ -407,6 +527,22 @@ def test_post_people_defaults_count_to_one(client: TestClient) -> None:
     response = client.post("/api/people", json=_seattle_inbounds_point())
     assert response.status_code == 201
     assert response.json()["count"] == 1
+
+
+def test_post_people_accepts_visual_tuning_fields(client: TestClient) -> None:
+    body = {
+        **_seattle_inbounds_point(),
+        "count": 10_000,
+        "kind": "stadium",
+        "duration_minutes": 240,
+        "radius_m": 3200,
+    }
+    response = client.post("/api/people", json=body)
+    assert response.status_code == 201
+    payload = response.json()
+    assert payload["kind"] == "stadium"
+    assert payload["duration_minutes"] == 240
+    assert payload["radius_m"] == 3200
 
 
 def test_post_people_rejects_out_of_bounds(client: TestClient) -> None:
@@ -461,3 +597,114 @@ def test_added_person_boosts_density_in_their_cell() -> None:
     baseline = baseline_cells.get((expected_row, expected_col), 0.0)
     assert boosted > baseline
     assert boosted <= 1.0
+
+
+# ---------------------------------------------------------------------------
+# Visual simulation behavior
+# ---------------------------------------------------------------------------
+
+
+def test_ballard_deployment_cools_new_station_catchment() -> None:
+    server.STATE.playback.set_playing(False)
+    server.STATE.seek_playback(day_of_week=2, time_bin=8 * 60)
+    server.STATE.set_scenario("line-1")
+    baseline = server.STATE.compose_frame_cells()
+
+    server.STATE.set_scenario("line-1-2-ballard")
+    expanded = server.STATE.compose_frame_cells()
+
+    baseline_ballard = _mean_density_near(
+        baseline,
+        lat=47.6677,
+        lon=-122.3765,
+        radius_m=1000,
+    )
+    expanded_ballard = _mean_density_near(
+        expanded,
+        lat=47.6677,
+        lon=-122.3765,
+        radius_m=1000,
+    )
+    assert expanded_ballard < baseline_ballard * 0.75
+
+
+def test_underserved_areas_remain_hotter_than_served_catchments() -> None:
+    server.STATE.playback.set_playing(False)
+    server.STATE.seek_playback(day_of_week=2, time_bin=8 * 60)
+    server.STATE.set_scenario("line-1-2-ballard")
+    cells = server.STATE.compose_frame_cells()
+
+    served_ballard = _mean_density_near(
+        cells,
+        lat=47.6677,
+        lon=-122.3765,
+        radius_m=1000,
+    )
+    underserved_lake_city = _mean_density_near(
+        cells,
+        lat=47.7192,
+        lon=-122.2950,
+        radius_m=1000,
+    )
+    assert underserved_lake_city > served_ballard * 2.5
+
+
+def test_crowd_drop_spikes_then_decays_and_spreads() -> None:
+    lat = 47.6060
+    lon = -122.3330
+    row, col = _cell_for_point(lat, lon)
+
+    server.STATE.playback.set_playing(False)
+    server.STATE.seek_playback(day_of_week=2, time_bin=12 * 60)
+    server.STATE.set_scenario("line-1")
+    baseline = {(r, c): d for r, c, d in server.STATE.compose_frame_cells()}
+
+    server.STATE.add_person(
+        lat=lat,
+        lon=lon,
+        count=10_000,
+        duration_minutes=240,
+        radius_m=2800,
+    )
+    immediate = {(r, c): d for r, c, d in server.STATE.compose_frame_cells()}
+
+    server.STATE.seek_playback(day_of_week=2, time_bin=14 * 60)
+    later = {(r, c): d for r, c, d in server.STATE.compose_frame_cells()}
+
+    assert immediate[(row, col)] > baseline.get((row, col), 0.0) + 0.25
+    assert later[(row, col)] < immediate[(row, col)] - 0.20
+
+    centers = _cell_centers()
+    immediate_outer = 0
+    later_outer = 0
+    for cell_row, cell_col, cell_lat, cell_lon in centers:
+        distance = haversine_m(lat, lon, cell_lat, cell_lon)
+        if not 1600 <= distance <= 2800:
+            continue
+        baseline_density = baseline.get((cell_row, cell_col), 0.0)
+        if immediate.get((cell_row, cell_col), 0.0) > baseline_density + 0.12:
+            immediate_outer += 1
+        if later.get((cell_row, cell_col), 0.0) > baseline_density + 0.12:
+            later_outer += 1
+    assert later_outer > immediate_outer
+
+
+def test_time_profiles_produce_distinct_hotspot_distributions() -> None:
+    server.STATE.playback.set_playing(False)
+    server.STATE.set_scenario("line-1")
+
+    frames: dict[str, list[list[int | float]]] = {}
+    for name, day, time_bin in [
+        ("am", 2, 8 * 60),
+        ("midday", 2, 12 * 60),
+        ("pm", 2, 18 * 60),
+        ("evening", 2, 20 * 60),
+        ("weekend", 6, 13 * 60),
+    ]:
+        server.STATE.seek_playback(day_of_week=day, time_bin=time_bin)
+        frames[name] = server.STATE.compose_frame_cells()
+
+    assert _mean_abs_frame_delta(frames["am"], frames["midday"]) > 0.08
+    assert _mean_abs_frame_delta(frames["midday"], frames["pm"]) > 0.05
+    assert _mean_abs_frame_delta(frames["pm"], frames["evening"]) > 0.06
+    assert _mean_abs_frame_delta(frames["midday"], frames["weekend"]) > 0.03

@@ -61,11 +61,6 @@ const initialViewState = {
   bearing: -18,
 };
 
-const emptyFeatureCollection: FeatureCollection<Geometry> = {
-  type: "FeatureCollection",
-  features: [],
-};
-
 type Bounds = {
   west: number;
   south: number;
@@ -315,9 +310,6 @@ function App() {
   const [regionCollections, setRegionCollections] = useState<
     Record<string, FeatureCollection<Geometry>>
   >({});
-  const [buildings, setBuildings] = useState<FeatureCollection<Geometry>>(
-    emptyFeatureCollection,
-  );
   const [queryBounds, setQueryBounds] = useState(initialBounds);
   const [queuedRegionIds, setQueuedRegionIds] = useState<string[]>(
     REGION_LOAD_ORDER.slice(1) as unknown as string[],
@@ -326,16 +318,13 @@ function App() {
     REGION_LOAD_ORDER[0],
   );
   const [regionErrors, setRegionErrors] = useState<Record<string, string>>({});
-
-  useEffect(() => {
-    setScenario(DEPLOY_STEPS[deployedIndex].id).catch((err) => {
-      console.warn("[heatmap] failed to set scenario", err);
-    });
-  }, [deployedIndex, setScenario]);
+  const buildings = useMemo(
+    () => mergeFeatureCollections(Object.values(regionCollections)),
+    [regionCollections],
+  );
 
   // Time controls
   const [timeOfDay, setTimeOfDay] = useState(0);
-  const [isPlaying, setIsPlaying] = useState(false);
   const [dayOfWeek, setDayOfWeek] = useState(0);
   const [hoveredDay, setHoveredDay] = useState<number | null>(null);
   const hoverTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -363,20 +352,16 @@ function App() {
     y: number;
   } | null>(null);
 
-  const backendIsPlaying = playback?.is_playing ?? isPlaying;
+  const backendIsPlaying = playback?.is_playing ?? false;
   const interpolatedMinuteOfWeek = useInterpolatedMinuteOfWeek(playback);
 
   useEffect(() => {
     if (!playback?.sim_time || isDraggingDial) return;
-    setDayOfWeek(playback.sim_time.day_of_week);
-    setTimeOfDay(playback.sim_time.time_bin);
+    queueMicrotask(() => {
+      setDayOfWeek(playback.sim_time.day_of_week);
+      setTimeOfDay(playback.sim_time.time_bin);
+    });
   }, [playback?.sim_time, isDraggingDial]);
-
-  useEffect(() => {
-    if (playback) {
-      setIsPlaying(playback.is_playing);
-    }
-  }, [playback]);
 
   useEffect(() => {
     selectedTimeRef.current = timeOfDay;
@@ -404,6 +389,12 @@ function App() {
     }
     return { activeStops: stops, activeLines: lines };
   }, [deployedIndex]);
+
+  useEffect(() => {
+    setScenario(DEPLOY_STEPS[deployedIndex].id, activeStops, activeLines).catch((err) => {
+      console.warn("[heatmap] failed to set scenario", err);
+    });
+  }, [activeLines, activeStops, deployedIndex, setScenario]);
 
   const stopsGeoJSON = useMemo(
     () => stopsToGeoJSON(activeStops, activeLines),
@@ -480,10 +471,6 @@ function App() {
 
   // ── Building loading effects ──
   useEffect(() => {
-    setBuildings(mergeFeatureCollections(Object.values(regionCollections)));
-  }, [regionCollections]);
-
-  useEffect(() => {
     const loadedRegionIds = Object.keys(regionCollections);
     const inViewRegionIds = BUILDING_REGIONS.filter((region) =>
       intersectsBounds(region.bounds, queryBounds),
@@ -498,17 +485,19 @@ function App() {
         !regionErrors[regionId],
     );
 
-    setQueuedRegionIds((current) =>
-      sortRegionIds([
-        ...current.filter(
-          (regionId) =>
-            !loadedRegionIds.includes(regionId) &&
-            regionId !== activeRegionId &&
-            !regionErrors[regionId],
-        ),
-        ...pendingRegionIds,
-      ]),
-    );
+    queueMicrotask(() => {
+      setQueuedRegionIds((current) =>
+        sortRegionIds([
+          ...current.filter(
+            (regionId) =>
+              !loadedRegionIds.includes(regionId) &&
+              regionId !== activeRegionId &&
+              !regionErrors[regionId],
+          ),
+          ...pendingRegionIds,
+        ]),
+      );
+    });
   }, [activeRegionId, queryBounds, regionCollections, regionErrors]);
 
   useEffect(() => {
@@ -516,8 +505,10 @@ function App() {
       return;
     }
 
-    setActiveRegionId(queuedRegionIds[0]);
-    setQueuedRegionIds((current) => current.slice(1));
+    queueMicrotask(() => {
+      setActiveRegionId(queuedRegionIds[0]);
+      setQueuedRegionIds((current) => current.slice(1));
+    });
   }, [activeRegionId, queuedRegionIds]);
 
   useEffect(() => {
@@ -529,15 +520,17 @@ function App() {
       (candidate) => candidate.id === activeRegionId,
     );
     if (!region) {
-      setActiveRegionId(null);
+      queueMicrotask(() => setActiveRegionId(null));
       return undefined;
     }
 
     const controller = new AbortController();
-    setRegionErrors((current) => {
-      const next = { ...current };
-      delete next[activeRegionId];
-      return next;
+    queueMicrotask(() => {
+      setRegionErrors((current) => {
+        const next = { ...current };
+        delete next[activeRegionId];
+        return next;
+      });
     });
 
     void fetchRegionBuildings(region, controller.signal)
@@ -714,21 +707,30 @@ function App() {
     }
   };
 
+  const deployNextStep = useCallback(() => {
+    setDeployedIndex((current) =>
+      Math.min(current + 1, DEPLOY_STEPS.length - 1),
+    );
+  }, []);
+
   // ── Map click handler — deploy on trigger click ──
   const handleMapClick = useCallback(
     (e: MapLayerMouseEvent) => {
       if (!nextStep) return;
-      const features = e.features;
-      if (features && features.length > 0) {
-        setDeployedIndex((prev) => prev + 1);
+      const clickedDeployTarget = e.features?.some((feature) =>
+        feature.layer.id === "deploy-pulse-ring" ||
+        feature.layer.id === "deploy-glow-dot",
+      );
+      if (clickedDeployTarget) {
+        deployNextStep();
       }
     },
-    [nextStep],
+    [deployNextStep, nextStep],
   );
 
   // ── Time controls ──
-  const updateTimeFromPointer = (clientX: number, clientY: number) => {
-    if (!dialRef.current) return timeOfDay;
+  const updateTimeFromPointer = useCallback((clientX: number, clientY: number) => {
+    if (!dialRef.current) return selectedTimeRef.current;
     const rect = dialRef.current.getBoundingClientRect();
     const cx = rect.left + rect.width / 2;
     const cy = rect.top + rect.height / 2;
@@ -741,7 +743,7 @@ function App() {
     selectedTimeRef.current = newTime;
     setTimeOfDay(newTime);
     return newTime;
-  };
+  }, []);
 
   useEffect(() => {
     const handlePointerMove = (e: PointerEvent) => {
@@ -764,7 +766,7 @@ function App() {
       window.removeEventListener("pointermove", handlePointerMove);
       window.removeEventListener("pointerup", handlePointerUp);
     };
-  }, [isDraggingDial]);
+  }, [isDraggingDial, seekTo, updateTimeFromPointer]);
 
   // ── Crowd Drop Pointer Events ──
   useEffect(() => {
@@ -793,7 +795,11 @@ function App() {
           const lat = lngLat.lat + r * Math.cos(theta);
           const lon = lngLat.lng + r * Math.sin(theta);
 
-          addPeople(lat, lon, peoplePerDrop).catch(console.error);
+          addPeople(lat, lon, peoplePerDrop, {
+            kind: "crowd",
+            duration_minutes: 240,
+            radius_m: 2800,
+          }).catch(console.error);
         }
       }
     };
@@ -974,27 +980,36 @@ function App() {
             anchor="bottom"
             offset={[0, -30]}
           >
-            <div className="deploy-tooltip">
+            <button
+              className="deploy-tooltip"
+              onClick={(event) => {
+                event.stopPropagation();
+                deployNextStep();
+              }}
+              type="button"
+            >
               <span className="deploy-tooltip-icon">⚡</span>
               <span>{nextStep.label}</span>
-            </div>
+            </button>
           </Marker>
         )}
       </Map>
 
       {/* Off-screen arrow pointing toward the deploy node */}
       {offscreenArrow && nextStep?.label && (
-        <div
+        <button
           className="offscreen-arrow"
+          onClick={deployNextStep}
           style={{
             left: `${offscreenArrow.x}px`,
             top: `${offscreenArrow.y}px`,
             transform: `translate(-50%, -50%) rotate(${offscreenArrow.angle}deg)`,
           }}
+          type="button"
         >
           <span className="offscreen-arrow-label">{nextStep.label}</span>
           <span className="offscreen-arrow-chevron">›</span>
-        </div>
+        </button>
       )}
 
       {/* Dragging Reticle */}

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { FeatureCollection, Point } from 'geojson';
-import { buildCentroidLookup, emptyGrid, frameToGeoJSON } from './grid.ts';
+import { emptyGrid, frameToGeoJSON } from './grid.ts';
 import type { GridConfig, Frame } from './grid.ts';
 import {
   deleteAllPeople,
@@ -9,8 +9,11 @@ import {
   postPeople,
   postScenario,
   seekPlayback,
+  type PeopleOptions,
   type PlaybackState,
   type PlacedPerson,
+  type ScenarioLine,
+  type ScenarioStop,
 } from './api.ts';
 
 const STREAM_URL = '/api/heatmap/stream';
@@ -21,10 +24,15 @@ export type HeatmapApi = {
   scenarioId: string | null;
   playback: PlaybackState | null;
   diagnostics: HeatmapDiagnostics;
-  setScenario: (id: string) => Promise<void>;
+  setScenario: (id: string, stops?: ScenarioStop[], lines?: ScenarioLine[]) => Promise<void>;
   setPlaying: (isPlaying: boolean) => Promise<void>;
   seekTo: (dayOfWeek: number, timeBin: number) => Promise<void>;
-  addPeople: (lat: number, lon: number, count?: number) => Promise<PlacedPerson>;
+  addPeople: (
+    lat: number,
+    lon: number,
+    count?: number,
+    options?: PeopleOptions,
+  ) => Promise<PlacedPerson>;
   removePeople: (id: string) => Promise<void>;
   clearPeople: () => Promise<void>;
 };
@@ -58,7 +66,6 @@ export function useHeatmap(): HeatmapApi {
     simTime: null,
     lastError: null,
   });
-  const centroidsRef = useRef<Float64Array | null>(null);
   const configRef = useRef<GridConfig | null>(null);
   // Set when a scenario switch is in flight; frames are dropped until the
   // server's `scenario` event confirms the switch by matching this value.
@@ -78,7 +85,6 @@ export function useHeatmap(): HeatmapApi {
     source.addEventListener('config', (e: MessageEvent) => {
       const config: GridConfig = JSON.parse(e.data as string);
       configRef.current = config;
-      centroidsRef.current = buildCentroidLookup(config);
       setDiagnostics((current) => ({
         ...current,
         config: { rows: config.rows, cols: config.cols },
@@ -108,10 +114,10 @@ export function useHeatmap(): HeatmapApi {
     });
 
     source.addEventListener('frame', (e: MessageEvent) => {
-      if (!centroidsRef.current || !configRef.current) return;
+      if (!configRef.current) return;
       if (pendingScenarioRef.current !== null) return;
       const frame: Frame = JSON.parse(e.data as string);
-      const nextGeojson = frameToGeoJSON(frame.cells, centroidsRef.current, configRef.current.cols);
+      const nextGeojson = frameToGeoJSON(frame.cells, configRef.current);
       setGeojson(
         nextGeojson,
       );
@@ -148,14 +154,18 @@ export function useHeatmap(): HeatmapApi {
     };
   }, []);
 
-  const setScenario = useCallback(async (id: string) => {
+  const setScenario = useCallback(async (
+    id: string,
+    stops: ScenarioStop[] = [],
+    lines: ScenarioLine[] = [],
+  ) => {
     pendingScenarioRef.current = id;
     setDiagnostics((current) => ({
       ...current,
       pendingScenarioId: id,
     }));
     try {
-      await postScenario(id);
+      await postScenario(id, stops, lines);
     } catch (err) {
       pendingScenarioRef.current = null;
       setDiagnostics((current) => ({
@@ -182,7 +192,8 @@ export function useHeatmap(): HeatmapApi {
   }, []);
 
   const addPeople = useCallback(
-    (lat: number, lon: number, count = 1) => postPeople(lat, lon, count),
+    (lat: number, lon: number, count = 1, options: PeopleOptions = {}) =>
+      postPeople(lat, lon, count, options),
     [],
   );
   const removePeople = useCallback((id: string) => deletePerson(id), []);
