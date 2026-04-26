@@ -229,8 +229,12 @@ class NetworkInfluence:
         self.network = network
         self.centers = cell_centers(grid)
         self._segments = list(_line_segments(network))
-        self._transfer_stop_ids = _transfer_stop_ids(network)
+        self._line_count_by_stop_id = _line_count_by_stop_id(network)
         self.influences = [self._influence_for_center(center) for center in self.centers]
+
+    @property
+    def line_count_by_stop_id(self) -> dict[str, int]:
+        return dict(self._line_count_by_stop_id)
 
     def apply(self, values: list[float]) -> list[float]:
         if not values:
@@ -260,13 +264,20 @@ class NetworkInfluence:
         for stop in self.network.stops:
             distance_m = haversine_m(center.lat, center.lon, stop.lat, stop.lon)
             nearest_station_m = min(nearest_station_m, distance_m)
-            local_relief = (
+            service_count = self._line_count_by_stop_id.get(stop.id, 1)
+            station_throughput = float(max(1, service_count))
+            base_relief = (
                 0.56 * math.exp(-((distance_m / 620.0) ** 2))
                 + 0.18 * math.exp(-((distance_m / 1350.0) ** 2))
             )
-            if stop.id in self._transfer_stop_ids:
-                local_relief += 0.08 * math.exp(-((distance_m / 480.0) ** 2))
-            stop_relief = _combine_probability(stop_relief, min(0.72, local_relief))
+            throughput_bonus = (
+                0.04
+                * max(0, service_count - 1)
+                * math.exp(-((distance_m / 480.0) ** 2))
+            )
+            local_relief = base_relief * station_throughput + throughput_bonus
+            local_cap = min(0.9, 0.72 + 0.12 * max(0, service_count - 1))
+            stop_relief = _combine_probability(stop_relief, min(local_cap, local_relief))
 
         line_relief = 0.0
         nearest_line_m = float("inf")
@@ -338,12 +349,12 @@ def _line_segments(network: ActiveNetwork):
             yield _SegmentPoint(lat=lat_a, lon=lon_a), _SegmentPoint(lat=lat_b, lon=lon_b)
 
 
-def _transfer_stop_ids(network: ActiveNetwork) -> set[str]:
+def _line_count_by_stop_id(network: ActiveNetwork) -> dict[str, int]:
     line_count_by_stop: dict[str, int] = {}
     for line in network.lines:
         for stop_id in line.stop_ids:
             line_count_by_stop[stop_id] = line_count_by_stop.get(stop_id, 0) + 1
-    return {stop_id for stop_id, count in line_count_by_stop.items() if count > 1}
+    return line_count_by_stop
 
 
 def _combine_probability(current: float, next_value: float) -> float:

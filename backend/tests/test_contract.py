@@ -33,6 +33,7 @@ from fastapi.testclient import TestClient
 
 from backend import server
 from backend.geo import haversine_m
+from backend.network import NetworkInfluence, default_network_for_scenario
 from backend.state import DEFAULT_SCENARIO_ID, VALID_SCENARIO_IDS, State
 
 GEOJSON_PATH = Path("seattle/data/processed/seattle_heatmap_grid.geojson")
@@ -501,6 +502,25 @@ def _mean_density_near(
     return sum(values) / len(values)
 
 
+def _mean_relief_near(
+    network_influence: NetworkInfluence,
+    *,
+    lat: float,
+    lon: float,
+    radius_m: float,
+) -> float:
+    values = [
+        influence.relief
+        for center, influence in zip(
+            network_influence.centers,
+            network_influence.influences,
+        )
+        if haversine_m(lat, lon, center.lat, center.lon) <= radius_m
+    ]
+    assert values, "test location should cover at least one grid cell"
+    return sum(values) / len(values)
+
+
 def _mean_abs_frame_delta(
     left: list[list[int | float]],
     right: list[list[int | float]],
@@ -634,6 +654,31 @@ def test_ballard_deployment_cools_new_station_catchment() -> None:
         radius_m=1000,
     )
     assert expanded_ballard < baseline_ballard * 0.75
+
+
+def test_line_2_doubles_shared_station_throughput() -> None:
+    line_1 = NetworkInfluence(server.GRID, default_network_for_scenario("line-1"))
+    line_1_2 = NetworkInfluence(server.GRID, default_network_for_scenario("line-1-2"))
+
+    assert line_1.line_count_by_stop_id["westlake"] == 1
+    assert line_1_2.line_count_by_stop_id["westlake"] == 2
+    assert line_1_2.line_count_by_stop_id["u-district"] == 2
+    assert line_1_2.line_count_by_stop_id["judkins-park"] == 1
+
+    line_1_westlake_relief = _mean_relief_near(
+        line_1,
+        lat=47.6113,
+        lon=-122.3371,
+        radius_m=1600,
+    )
+    line_1_2_westlake_relief = _mean_relief_near(
+        line_1_2,
+        lat=47.6113,
+        lon=-122.3371,
+        radius_m=1600,
+    )
+
+    assert line_1_2_westlake_relief > line_1_westlake_relief + 0.1
 
 
 def test_underserved_areas_remain_hotter_than_served_catchments() -> None:
