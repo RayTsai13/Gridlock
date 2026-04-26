@@ -224,6 +224,9 @@ function App() {
   const [expansionModeId, setExpansionModeId] = useState(DEFAULT_MODE.id);
   const [timeOfDay, setTimeOfDay] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
+  const [dayOfWeek, setDayOfWeek] = useState(0);
+  const [hoveredDay, setHoveredDay] = useState<number | null>(null);
+  const hoverTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const dialRef = useRef<HTMLDivElement>(null);
   const [isDraggingDial, setIsDraggingDial] = useState(false);
 
@@ -435,6 +438,28 @@ function App() {
     };
   });
 
+  // Dynamic angle calculation to push nodes away from the active/hovered day
+  const WEEKDAYS = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
+  const focusIndex = hoveredDay !== null ? hoveredDay : dayOfWeek;
+  const ACTIVE_WIDTH = 4.5; 
+  const INACTIVE_WIDTH = 1;
+  const TOTAL_SPAN = 130;
+  const START_ANGLE = 160;
+
+  const nodeWidths = WEEKDAYS.map((_, i) => i === focusIndex ? ACTIVE_WIDTH : INACTIVE_WIDTH);
+  const gaps = [];
+  for (let i = 0; i < 6; i++) {
+    gaps.push((nodeWidths[i] + nodeWidths[i+1]) / 2);
+  }
+  const totalGap = gaps.reduce((a, b) => a + b, 0);
+
+  const nodeAngles = [START_ANGLE];
+  let currentGapSum = 0;
+  for (let i = 0; i < 6; i++) {
+    currentGapSum += gaps[i];
+    nodeAngles.push(START_ANGLE + (currentGapSum / totalGap) * TOTAL_SPAN);
+  }
+
   return (
     <div className="map-shell">
       <aside className="map-note">
@@ -512,39 +537,71 @@ function App() {
         </Source>
       </Map>
 
-      <div className="radial-dial-container">
-        <div 
-          className="radial-dial" 
-          ref={dialRef}
-          onPointerDown={(e) => {
-            setIsDraggingDial(true);
-            updateTimeFromPointer(e.clientX, e.clientY);
-          }}
-          style={{ touchAction: 'none' }}
-        >
-          <svg viewBox="-75 -75 150 150" className="radial-dial-svg">
-            <circle cx="0" cy="0" r={dialRadius} className="dial-track" />
-            <line x1="0" y1={-dialRadius - 6} x2="0" y2={-dialRadius + 6} stroke="rgba(43, 77, 112, 0.4)" strokeWidth="2" />
-            <line x1="0" y1={dialRadius - 6} x2="0" y2={dialRadius + 6} stroke="rgba(43, 77, 112, 0.4)" strokeWidth="2" />
-            <line x1={-dialRadius - 6} y1="0" x2={-dialRadius + 6} y2="0" stroke="rgba(43, 77, 112, 0.4)" strokeWidth="2" />
-            <line x1={dialRadius - 6} y1="0" x2={dialRadius + 6} y2="0" stroke="rgba(43, 77, 112, 0.4)" strokeWidth="2" />
-            
-            <circle 
-              cx={thumbX} 
-              cy={thumbY} 
-              r="8" 
-              className="dial-thumb" 
-            />
-          </svg>
-          <div className="dial-center-content">
-            <span className="dial-time">{formatTime(timeOfDay)}</span>
+      <div className="time-controls-wrapper">
+        {WEEKDAYS.map((dayLabel, index) => {
+          const angleDeg = nodeAngles[index];
+          const angleRad = angleDeg * Math.PI / 180;
+          const isFocused = focusIndex === index;
+          const R = isFocused ? 122 : 110; 
+          const x = Math.cos(angleRad) * R;
+          const y = Math.sin(angleRad) * R;
+
+          return (
             <button
-              className="dial-play-btn"
-              onClick={(e) => { e.stopPropagation(); setIsPlaying(!isPlaying); }}
-              aria-label={isPlaying ? 'Pause' : 'Play'}
+              key={index}
+              className={`orbit-node ${dayOfWeek === index ? 'is-selected' : ''} ${focusIndex === index ? 'is-focused' : ''}`}
+              style={{ '--x': `${x}px`, '--y': `${y}px` } as React.CSSProperties}
+              onClick={() => setDayOfWeek(index)}
+              onMouseEnter={() => {
+                if (hoverTimeoutRef.current) clearTimeout(hoverTimeoutRef.current);
+                setHoveredDay(index);
+              }}
+              onMouseLeave={() => {
+                hoverTimeoutRef.current = setTimeout(() => {
+                  setHoveredDay(null);
+                }, 150);
+              }}
+              aria-label={`Select day ${index + 1}`}
             >
-              {isPlaying ? 'PAUSE' : 'PLAY'}
+              {dayLabel}
             </button>
+          );
+        })}
+
+        <div className="radial-dial-container">
+          <div 
+            className="radial-dial" 
+            ref={dialRef}
+            onPointerDown={(e) => {
+              setIsDraggingDial(true);
+              updateTimeFromPointer(e.clientX, e.clientY);
+            }}
+            style={{ touchAction: 'none' }}
+          >
+            <svg viewBox="-75 -75 150 150" className="radial-dial-svg">
+              <circle cx="0" cy="0" r={dialRadius} className="dial-track" />
+              <line x1="0" y1={-dialRadius - 6} x2="0" y2={-dialRadius + 6} stroke="rgba(43, 77, 112, 0.4)" strokeWidth="2" />
+              <line x1="0" y1={dialRadius - 6} x2="0" y2={dialRadius + 6} stroke="rgba(43, 77, 112, 0.4)" strokeWidth="2" />
+              <line x1={-dialRadius - 6} y1="0" x2={-dialRadius + 6} y2="0" stroke="rgba(43, 77, 112, 0.4)" strokeWidth="2" />
+              <line x1={dialRadius - 6} y1="0" x2={dialRadius + 6} y2="0" stroke="rgba(43, 77, 112, 0.4)" strokeWidth="2" />
+              
+              <circle 
+                cx={thumbX} 
+                cy={thumbY} 
+                r="8" 
+                className="dial-thumb" 
+              />
+            </svg>
+            <div className="dial-center-content">
+              <span className="dial-time">{formatTime(timeOfDay)}</span>
+              <button
+                className="dial-play-btn"
+                onClick={(e) => { e.stopPropagation(); setIsPlaying(!isPlaying); }}
+                aria-label={isPlaying ? 'Pause' : 'Play'}
+              >
+                {isPlaying ? 'PAUSE' : 'PLAY'}
+              </button>
+            </div>
           </div>
         </div>
       </div>
