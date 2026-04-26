@@ -1,0 +1,76 @@
+"""Compose backend heatmap frames from baseline and active scenario state."""
+
+from __future__ import annotations
+
+import time
+from dataclasses import dataclass
+
+from src.runtime.clock import SimulationClock, SimTime
+from src.runtime.state import ScenarioStateManager
+from src.runtime.stores import DemandFrameStore, FrameValues, clamp
+
+
+@dataclass
+class HeatmapFrame:
+    timestamp: float
+    state_version: str
+    sim_time: SimTime
+    cells: list[list[float | int]]
+
+    def to_dict(self) -> dict:
+        return {
+            "timestamp": self.timestamp,
+            "state_version": self.state_version,
+            "sim_time": self.sim_time.to_dict(),
+            "cells": self.cells,
+        }
+
+
+class FrameComposer:
+    """Produces complete SSE frame snapshots for the current simulation state."""
+
+    def __init__(
+        self,
+        *,
+        baseline: DemandFrameStore,
+        scenario_state: ScenarioStateManager,
+        clock: SimulationClock,
+        display_threshold: float = 0.0,
+    ) -> None:
+        self.baseline = baseline
+        self.scenario_state = scenario_state
+        self.clock = clock
+        self.display_threshold = display_threshold
+
+    def next_frame(self) -> HeatmapFrame:
+        sim_time = self.clock.advance()
+        return self.compose(tick=self.clock.current_tick, sim_time=sim_time)
+
+    def compose(self, *, tick: int, sim_time: SimTime) -> HeatmapFrame:
+        values = self.baseline.frame_for(sim_time)
+        for record in self.scenario_state.active_records(tick):
+            values = apply_delta(values, record.delta_store.frame_for(sim_time))
+
+        cells = [
+            [row, col, round(density, 6)]
+            for (row, col), density in sorted(values.items())
+            if density > self.display_threshold
+        ]
+        return HeatmapFrame(
+            timestamp=time.time(),
+            state_version=self.scenario_state.current_state_version,
+            sim_time=sim_time,
+            cells=cells,
+        )
+
+
+def apply_delta(base: FrameValues, delta: FrameValues) -> FrameValues:
+    if not delta:
+        return dict(base)
+
+    result = dict(base)
+    for cell, value in delta.items():
+        result[cell] = clamp(result.get(cell, 0.0) + value)
+        if result[cell] == 0.0:
+            del result[cell]
+    return result
