@@ -122,3 +122,4 @@ Typical heatmap-data flow:
 2. Train or evaluate the Seattle heatmap model
 
 See [`seattle/README.md`](seattle/README.md) for the Seattle workspace layout and commands.
+
