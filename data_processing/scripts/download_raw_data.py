@@ -195,7 +195,7 @@ def download_socrata(url: str, destination: Path, params: dict[str, object]) -> 
 
 
 def kaggle_headers() -> dict[str, str]:
-    headers = {"User-Agent": "seattle-transit-sim-data-processing/1.0"}
+    headers = {"User-Agent": "gridlock-data-processing/1.0"}
     username = os.environ.get("KAGGLE_USERNAME", "").strip()
     key = os.environ.get("KAGGLE_KEY", "").strip()
     if username and key:

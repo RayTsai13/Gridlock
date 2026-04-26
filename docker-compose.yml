@@ -1,6 +1,6 @@
 services:
   frontend:
-    image: yourdockerhubuser/seattle-transit-sim-frontend:latest
+    image: yourdockerhubuser/gridlock-frontend:latest
     build:
       context: .
       dockerfile: frontend.Dockerfile
@@ -11,7 +11,7 @@ services:
     restart: unless-stopped
 
   backend:
-    image: yourdockerhubuser/seattle-transit-sim-backend:latest
+    image: yourdockerhubuser/gridlock-backend:latest
     build:
       context: .
       dockerfile: backend.Dockerfile

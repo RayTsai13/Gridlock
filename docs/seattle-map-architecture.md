@@ -18,7 +18,7 @@ Instead, it:
 4. renders those footprints as MapLibre `fill-extrusion`
 5. overlays the SSE heatmap source above the buildings
 
-The runtime entry point is [src/App.tsx](/Users/raymondtsai/Desktop/UWBHacks%20'26/seattle-transit-sim/src/App.tsx:1).
+The runtime entry point is [src/App.tsx](../src/App.tsx).
 
 ## Region Coverage
 
