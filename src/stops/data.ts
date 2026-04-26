@@ -1,4 +1,5 @@
 import type { Feature, FeatureCollection, LineString, Point } from 'geojson';
+import { LINE_1_TRACK, LINE_2_TRACK, type LonLat } from './track_geometry';
 
 export type TransitStop = {
   id: string;
@@ -14,6 +15,11 @@ export type TransitLine = {
   offset: number;
   /** Ordered stop IDs that define the route path. */
   stopIds: string[];
+  /**
+   * Real-world track geometry (ordered [lon, lat] points). When set, this is
+   * used as the rendered polyline instead of straight stop-to-stop segments.
+   */
+  path?: LonLat[];
 };
 
 export type ExpansionMode = {
@@ -80,6 +86,7 @@ export const LINK_1_LINE: TransitLine = {
     'stadium', 'sodo', 'beacon-hill', 'mount-baker',
     'columbia-city', 'othello', 'rainier-beach',
   ],
+  path: LINE_1_TRACK,
 };
 
 /**
@@ -97,6 +104,7 @@ export const LINK_2_LINE: TransitLine = {
     'westlake', 'symphony', 'pioneer-square', 'id-chinatown',
     'judkins-park', 'mercer-island', 'bellevue-downtown',
   ],
+  path: LINE_2_TRACK,
 };
 
 /**
@@ -166,9 +174,11 @@ export function linesToGeoJSON(
   const stopMap = new Map(stops.map((s) => [s.id, s]));
 
   const features: Feature<LineString>[] = lines.map((line) => {
-    const coordinates = line.stopIds
-      .map((sid) => stopMap.get(sid)?.coordinates)
-      .filter((c): c is [number, number] => c !== undefined);
+    const coordinates: [number, number][] = line.path
+      ? line.path
+      : line.stopIds
+          .map((sid) => stopMap.get(sid)?.coordinates)
+          .filter((c): c is [number, number] => c !== undefined);
 
     return {
       type: 'Feature' as const,

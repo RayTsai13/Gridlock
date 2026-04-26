@@ -2,7 +2,8 @@
   "permissions": {
     "allow": [
       "Bash(npx tsc *)",
-      "Bash(python3 *)"
+      "Bash(python3 *)",
+      "Bash(lsof -nP -iTCP:8000 -sTCP:LISTEN)"
     ]
   }
 }
