@@ -138,7 +138,7 @@ class LiveOverlayManager:
         decay_scale = 0.42 if served else 0.78
         temporal = math.exp(-age_minutes / max(18.0, overlay.duration_minutes * decay_scale))
         linger = 0.26 * (1.0 - progress) if not served else 0.08 * (1.0 - progress)
-        count_strength = min(1.15, 0.24 + 0.125 * math.log1p(overlay.count))
+        count_strength = crowd_count_strength(overlay.count)
         peak = count_strength * (temporal + linger)
 
         early_core_m = 230.0 + min(650.0, math.sqrt(overlay.count) * 4.2)
@@ -172,3 +172,8 @@ class LiveOverlayManager:
 
 def overlay_age_minutes(overlay: CrowdOverlay, sim_time: SimTime) -> int:
     return (sim_time.minute_of_week - overlay.created_at_minute) % MINUTES_PER_WEEK
+
+
+def crowd_count_strength(count: int) -> float:
+    normalized = clamp(max(1, count) / 2500.0)
+    return 0.12 + 1.20 * (normalized ** 1.35)

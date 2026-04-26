@@ -34,6 +34,7 @@ from fastapi.testclient import TestClient
 from backend import server
 from backend.geo import haversine_m
 from backend.network import NetworkInfluence, default_network_for_scenario
+from backend.overlays import crowd_count_strength
 from backend.state import DEFAULT_SCENARIO_ID, VALID_SCENARIO_IDS, State
 
 GEOJSON_PATH = Path("seattle/data/processed/seattle_heatmap_grid.geojson")
@@ -502,6 +503,11 @@ def _mean_density_near(
     return sum(values) / len(values)
 
 
+def _mean_frame_density(cells: list[list[int | float]]) -> float:
+    total = sum(float(density) for _, _, density in cells)
+    return total / (server.GRID.rows * server.GRID.cols)
+
+
 def _mean_relief_near(
     network_influence: NetworkInfluence,
     *,
@@ -681,6 +687,24 @@ def test_line_2_doubles_shared_station_throughput() -> None:
     assert line_1_2_westlake_relief > line_1_westlake_relief + 0.1
 
 
+def test_more_lines_progressively_lower_citywide_demand() -> None:
+    server.STATE.playback.set_playing(False)
+    server.STATE.seek_playback(day_of_week=2, time_bin=8 * 60)
+
+    mean_by_scenario: dict[str, float] = {}
+    for scenario_id in ("line-1", "line-1-2", "line-1-2-ballard"):
+        server.STATE.set_scenario(scenario_id)
+        mean_by_scenario[scenario_id] = _mean_frame_density(
+            server.STATE.compose_frame_cells()
+        )
+
+    assert mean_by_scenario["line-1-2"] < mean_by_scenario["line-1"] * 0.96
+    assert (
+        mean_by_scenario["line-1-2-ballard"]
+        < mean_by_scenario["line-1-2"] * 0.96
+    )
+
+
 def test_underserved_areas_remain_hotter_than_served_catchments() -> None:
     server.STATE.playback.set_playing(False)
     server.STATE.seek_playback(day_of_week=2, time_bin=8 * 60)
@@ -740,6 +764,50 @@ def test_crowd_drop_spikes_then_decays_and_spreads() -> None:
         if later.get((cell_row, cell_col), 0.0) > baseline_density + 0.12:
             later_outer += 1
     assert later_outer > immediate_outer
+
+
+def test_crowd_drop_scale_tracks_people_count() -> None:
+    lat = 47.6060
+    lon = -122.3330
+
+    server.STATE.playback.set_playing(False)
+    server.STATE.seek_playback(day_of_week=2, time_bin=12 * 60)
+    server.STATE.set_scenario("line-1")
+    baseline = server.STATE.compose_frame_cells()
+    baseline_near = _mean_density_near(
+        baseline,
+        lat=lat,
+        lon=lon,
+        radius_m=1400,
+    )
+
+    server.STATE.add_person(
+        lat=lat,
+        lon=lon,
+        count=5_000 // 12,
+        duration_minutes=240,
+    )
+    low_drop = server.STATE.compose_frame_cells()
+    low_boost = (
+        _mean_density_near(low_drop, lat=lat, lon=lon, radius_m=1400)
+        - baseline_near
+    )
+
+    server.STATE.clear_people()
+    server.STATE.add_person(
+        lat=lat,
+        lon=lon,
+        count=30_000 // 12,
+        duration_minutes=240,
+    )
+    high_drop = server.STATE.compose_frame_cells()
+    high_boost = (
+        _mean_density_near(high_drop, lat=lat, lon=lon, radius_m=1400)
+        - baseline_near
+    )
+
+    assert crowd_count_strength(30_000 // 12) > crowd_count_strength(5_000 // 12) * 4
+    assert high_boost > max(0.02, low_boost * 2.5)
 
 
 def test_time_profiles_produce_distinct_hotspot_distributions() -> None:

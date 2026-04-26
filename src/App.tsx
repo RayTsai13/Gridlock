@@ -933,7 +933,6 @@ function App() {
           addPeople(lat, lon, peoplePerDrop, {
             kind: "crowd",
             duration_minutes: 240,
-            radius_m: 2800,
           }).catch(console.error);
         }
       }

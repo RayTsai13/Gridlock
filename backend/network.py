@@ -230,6 +230,7 @@ class NetworkInfluence:
         self.centers = cell_centers(grid)
         self._segments = list(_line_segments(network))
         self._line_count_by_stop_id = _line_count_by_stop_id(network)
+        self.systemwide_relief = _systemwide_relief(network)
         self.influences = [self._influence_for_center(center) for center in self.centers]
 
     @property
@@ -243,10 +244,19 @@ class NetworkInfluence:
         avg_positive = sum(positive) / len(positive) if positive else 0.0
         output: list[float] = []
         for value, influence in zip(values, self.influences):
-            cooled = value * (1.0 - influence.relief)
-            bonus = avg_positive * influence.underserved_bonus
-            output.append(max(0.0, cooled + bonus))
+            local_cooled = value * (1.0 - influence.relief)
+            system_cooled = local_cooled * (1.0 - self.systemwide_relief)
+            bonus = (
+                avg_positive
+                * influence.underserved_bonus
+                * (1.0 - self.systemwide_relief * 0.5)
+            )
+            output.append(max(0.0, system_cooled + bonus))
         return output
+
+    @property
+    def display_scale(self) -> float:
+        return 1.0 - self.systemwide_relief
 
     def nearest_station_distance(self, lat: float, lon: float) -> tuple[float, TransitStop | None]:
         nearest_distance = float("inf")
@@ -355,6 +365,12 @@ def _line_count_by_stop_id(network: ActiveNetwork) -> dict[str, int]:
         for stop_id in line.stop_ids:
             line_count_by_stop[stop_id] = line_count_by_stop.get(stop_id, 0) + 1
     return line_count_by_stop
+
+
+def _systemwide_relief(network: ActiveNetwork) -> float:
+    extra_lines = max(0, len(network.lines) - 1)
+    extra_stops = max(0, len(network.stops) - len(LINE_1_STOPS))
+    return min(0.26, 0.075 * extra_lines + 0.006 * extra_stops)
 
 
 def _combine_probability(current: float, next_value: float) -> float:

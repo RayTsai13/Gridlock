@@ -55,7 +55,10 @@ class FrameComposer:
             for base_value, overlay_value in zip(base_values, overlay_values)
         ]
         network_values = network_influence.apply(combined)
-        cells = self._to_sparse_cells(network_values)
+        cells = self._to_sparse_cells(
+            network_values,
+            display_scale=network_influence.display_scale,
+        )
         return HeatmapFrame(
             timestamp=time.time(),
             state_version=state_version,
@@ -63,11 +66,18 @@ class FrameComposer:
             cells=cells,
         )
 
-    def _to_sparse_cells(self, raw_values: list[float]) -> list[list[int | float]]:
+    def _to_sparse_cells(
+        self,
+        raw_values: list[float],
+        *,
+        display_scale: float = 1.0,
+    ) -> list[list[int | float]]:
         display_values = normalize_display_values(
             raw_values,
             gamma=self.display_gamma,
         )
+        if display_scale != 1.0:
+            display_values = [clamp(value * display_scale) for value in display_values]
         cells: list[list[int | float]] = []
         cols = self.seed_field.grid.cols
         for idx, density in enumerate(display_values):
