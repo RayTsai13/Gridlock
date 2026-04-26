@@ -66,6 +66,12 @@ pip install fastapi uvicorn
 uvicorn mock.server:app --host 0.0.0.0 --port 8000
 ```
 
+Or, if your Python env already has `uvicorn`, use the repo script:
+
+```bash
+npm run mock:server
+```
+
 Run the GeoJSON-backed skeleton:
 
 ```bash

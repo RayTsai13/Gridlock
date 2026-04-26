@@ -714,13 +714,13 @@ function App() {
 
         <DeckGLOverlay interleaved={true} layers={[
           new ScenegraphLayer({
-            id: 'space-needle-3d',
+            id: 'space-needle-3d-v4',
             data: [{ position: [-122.3493, 47.6205] }],
-            scenegraph: '/seattle/space_needle.glb',
+            scenegraph: '/seattle/SPACE NEEDLE.glb',
             getPosition: (d: any) => d.position,
-            getOrientation: [90, 0, 0], // Rotate 90 degrees on X-axis to stand up
+            getOrientation: [0, 0, 90],
             getScale: [1, 1, 1],
-            sizeScale: 1, // Trimesh export matches MapLibre 1:1 meters mostly
+            sizeScale: 1.2, // Slightly larger to confirm update
             _lighting: 'pbr' // Ensure proper shading
           })
         ]} />
