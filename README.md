@@ -48,14 +48,36 @@ Build the frontend:
 npm run build
 ```
 
-## Heatmap Mock Server
+## Heatmap Servers
 
-The repository includes a local mock SSE server for heatmap development:
+Two implementations of the SSE contract live in this repo:
+
+- `mock/server.py` — fully synthetic, drifting hotspots over a 200×170 grid.
+  Useful for animating the frontend without any real data.
+- `backend/server.py` — skeleton that loads `seattle_heatmap_grid.geojson`,
+  infers the grid config, and streams its normalized cell densities.
+
+Either one satisfies the contract in [`docs/heatmap-api-contract.md`](docs/heatmap-api-contract.md).
+
+Run the mock:
 
 ```bash
 pip install fastapi uvicorn
 uvicorn mock.server:app --host 0.0.0.0 --port 8000
 ```
+
+Run the GeoJSON-backed skeleton:
+
+```bash
+pip install -r backend/requirements.txt
+uvicorn backend.server:app --host 0.0.0.0 --port 8000
+```
+
+Override which file/property the skeleton reads via env vars:
+
+- `HEATMAP_GEOJSON` — path to a `FeatureCollection` of `r{row}_c{col}` cells
+- `HEATMAP_DENSITY_PROPERTY` — which numeric property to normalize as density
+- `HEATMAP_FRAME_INTERVAL` — seconds between frame ticks (default `1.0`)
 
 The frontend listens to:
 
