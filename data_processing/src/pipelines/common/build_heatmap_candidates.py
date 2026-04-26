@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 from pathlib import Path
 
 import numpy as np
@@ -80,6 +81,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--frequency-delta-csv",
         help="Optional CSV with station_id,hour,scheduled_trains_delta rows for route/frequency scenarios.",
+    )
+    parser.add_argument(
+        "--ballard-corridor-density-proxy",
+        action="store_true",
+        help=(
+            "Add a localized residential-density bump only within ~2 km of the Ballard extension "
+            "polyline (examples/scenarios/ballard_line_stations.csv). Does NOT lift the whole west side."
+        ),
     )
     return parser.parse_args()
 
@@ -258,6 +267,93 @@ def office_exposure(grid: pd.DataFrame, office_features_csv: str | None, decay_m
     return result
 
 
+_BALLARD_FALLBACK_POLY: list[tuple[float, float]] = [
+    (47.6677, -122.3765),
+    (47.6478, -122.3765),
+    (47.6378, -122.3635),
+    (47.6243, -122.3520),
+    (47.6258, -122.3377),
+    (47.6188, -122.3405),
+]
+
+
+def _read_ballard_polyline() -> list[tuple[float, float]]:
+    csv_path = Path(__file__).resolve().parents[3] / "examples" / "scenarios" / "ballard_line_stations.csv"
+    if not csv_path.exists():
+        return _BALLARD_FALLBACK_POLY
+    df = pd.read_csv(csv_path)
+    if "sequence" in df.columns:
+        df = df.sort_values("sequence")
+    df = df.assign(
+        lat=pd.to_numeric(df["lat"], errors="coerce"),
+        lon=pd.to_numeric(df["lon"], errors="coerce"),
+    ).dropna(subset=["lat", "lon"])
+    if len(df) < 2:
+        return _BALLARD_FALLBACK_POLY
+    return list(zip(df["lat"].astype(float).tolist(), df["lon"].astype(float).tolist()))
+
+
+def _polyline_min_distance_m(
+    lat: np.ndarray, lon: np.ndarray, poly: list[tuple[float, float]]
+) -> np.ndarray:
+    if len(poly) < 2:
+        return np.full(lat.shape, 1e9)
+    origin_lat = float(np.mean([p[0] for p in poly]))
+    origin_lon = float(np.mean([p[1] for p in poly]))
+    mplat = 111_320.0
+    mplon = 111_320.0 * math.cos(math.radians(origin_lat))
+    xs = np.array([(p[1] - origin_lon) * mplon for p in poly], dtype=float)
+    ys = np.array([(p[0] - origin_lat) * mplat for p in poly], dtype=float)
+    px = (lon - origin_lon) * mplon
+    py = (lat - origin_lat) * mplat
+    stacks: list[np.ndarray] = []
+    for i in range(len(poly) - 1):
+        abx = xs[i + 1] - xs[i]
+        aby = ys[i + 1] - ys[i]
+        length_sq = abx * abx + aby * aby
+        if length_sq == 0:
+            stacks.append(np.sqrt((px - xs[i]) ** 2 + (py - ys[i]) ** 2))
+            continue
+        t = np.clip(((px - xs[i]) * abx + (py - ys[i]) * aby) / length_sq, 0, 1)
+        nx = xs[i] + t * abx
+        ny = ys[i] + t * aby
+        stacks.append(np.sqrt((px - nx) ** 2 + (py - ny) ** 2))
+    return np.vstack(stacks).min(axis=0)
+
+
+def ballard_corridor_density_proxy(
+    candidates: pd.DataFrame,
+    *,
+    decay_m: float = 700.0,
+    max_influence_m: float = 2200.0,
+    amplitude_ratio: float = 0.50,
+) -> pd.DataFrame:
+    """Localized residential-density bump within ~2 km of the Ballard extension polyline.
+
+    Operates per-cell (one row per cell_id) and is invoked BEFORE the day-of-week
+    cross-merge so the bump is not duplicated 7x.
+    """
+    out = candidates.copy()
+    if "distance_weighted_residential_density" not in out.columns:
+        return out
+    poly = _read_ballard_polyline()
+    lat = pd.to_numeric(out["center_lat"], errors="coerce").fillna(0.0).to_numpy(dtype=float)
+    lon = pd.to_numeric(out["center_lon"], errors="coerce").fillna(0.0).to_numpy(dtype=float)
+    res = pd.to_numeric(out["distance_weighted_residential_density"], errors="coerce").fillna(0.0).to_numpy(dtype=float)
+    if not res.size:
+        return out
+    ref = float(np.percentile(res, 82))
+    ref = max(ref, 0.10)
+    d = _polyline_min_distance_m(lat, lon, poly)
+    bump = np.where(
+        d <= max_influence_m,
+        amplitude_ratio * ref * np.exp(-d / decay_m),
+        0.0,
+    )
+    out["distance_weighted_residential_density"] = res + bump
+    return out
+
+
 def add_temporal_land_use_demand(candidates: pd.DataFrame) -> pd.DataFrame:
     result = candidates.copy()
     residential = pd.to_numeric(result["distance_weighted_residential_density"], errors="coerce").fillna(0)
@@ -317,8 +413,10 @@ def main() -> None:
     candidates = (
         base.merge(exposure, on="cell_id", how="left")
         .merge(offices, on="cell_id", how="left")
-        .merge(freq_exposure, on="cell_id", how="left")
     )
+    if args.ballard_corridor_density_proxy:
+        candidates = ballard_corridor_density_proxy(candidates)
+    candidates = candidates.merge(freq_exposure, on="cell_id", how="left")
     days = pd.DataFrame({"day_of_week": range(7)})
     candidates = candidates.merge(days, how="cross")
     candidates = add_hour_context(candidates)

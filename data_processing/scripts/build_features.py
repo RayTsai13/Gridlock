@@ -37,6 +37,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--lehd-year", type=int, default=2022)
     parser.add_argument("--skip-download", action="store_true", help="Do not refresh raw data first.")
     parser.add_argument("--skip-seattle-heatmap", action="store_true")
+    parser.add_argument(
+        "--hackathon-demo-heatmap",
+        action="store_true",
+        help="Localized Ballard-corridor residential proxy + merge Link boardings into station vectors for the demo heatmap.",
+    )
     return parser.parse_args()
 
 
@@ -140,24 +145,26 @@ def main() -> None:
         )
     )
 
-    run(
-        py(
-            "-m",
-            "src.pipelines.seattle.build_station_vectors",
-            "--gtfs-dir",
-            args.station_gtfs_dir,
-            "--raw-dir",
-            raw_dir,
-            "--out-dir",
-            features_dir,
-            "--radius-m",
-            str(args.radius_m),
-            "--route-types",
-            args.route_types,
-            "--agency-ids",
-            args.agency_ids,
-        )
+    station_vector_cmd = py(
+        "-m",
+        "src.pipelines.seattle.build_station_vectors",
+        "--gtfs-dir",
+        args.station_gtfs_dir,
+        "--raw-dir",
+        raw_dir,
+        "--out-dir",
+        features_dir,
+        "--radius-m",
+        str(args.radius_m),
+        "--route-types",
+        args.route_types,
+        "--agency-ids",
+        args.agency_ids,
     )
+    boardings_csv = ROOT_DIR / "examples" / "scenarios" / "seattle_link_annual_boardings.csv"
+    if args.hackathon_demo_heatmap and boardings_csv.exists():
+        station_vector_cmd.extend(["--ridership-boardings-csv", str(boardings_csv)])
+    run(station_vector_cmd)
 
     if not args.skip_seattle_heatmap:
         seattle_heatmap_command = py(
@@ -182,30 +189,31 @@ def main() -> None:
             seattle_heatmap_command.extend(["--include-lehd", "--lehd-year", str(args.lehd_year)])
         run(seattle_heatmap_command)
 
-    run(
-        py(
-            "-m",
-            "src.pipelines.common.build_heatmap_candidates",
-            "--station-vectors",
-            f"{features_dir}/seattle_station_vectors.csv",
-            "--gtfs-dir",
-            args.station_gtfs_dir,
-            "--out-dir",
-            features_dir,
-            "--cell-size-m",
-            str(args.cell_size_m),
-            "--time-bin-minutes",
-            str(args.time_bin_minutes),
-            "--bbox",
-            "-122.4597,47.4810,-122.2244,47.7340",
-            "--office-features-csv",
-            f"{features_dir}/seattle_heatmap_features.csv",
-            "--route-types",
-            args.route_types,
-            "--agency-ids",
-            args.agency_ids,
-        )
+    heatmap_candidates_cmd = py(
+        "-m",
+        "src.pipelines.common.build_heatmap_candidates",
+        "--station-vectors",
+        f"{features_dir}/seattle_station_vectors.csv",
+        "--gtfs-dir",
+        args.station_gtfs_dir,
+        "--out-dir",
+        features_dir,
+        "--cell-size-m",
+        str(args.cell_size_m),
+        "--time-bin-minutes",
+        str(args.time_bin_minutes),
+        # Use --bbox=... so the value is not parsed as a separate flag (leading '-').
+        "--bbox=-122.4597,47.4810,-122.2244,47.7340",
+        "--office-features-csv",
+        f"{features_dir}/seattle_heatmap_features.csv",
+        "--route-types",
+        args.route_types,
+        "--agency-ids",
+        args.agency_ids,
     )
+    if args.hackathon_demo_heatmap:
+        heatmap_candidates_cmd.append("--ballard-corridor-density-proxy")
+    run(heatmap_candidates_cmd)
 
 
 if __name__ == "__main__":

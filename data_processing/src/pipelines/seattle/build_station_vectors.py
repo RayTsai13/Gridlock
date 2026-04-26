@@ -67,6 +67,13 @@ def parse_args() -> argparse.Namespace:
         default=",".join(DEFAULT_SEATTLE_STATION_AGENCY_IDS),
         help="Comma-separated GTFS agency_id values to keep. Default keeps Sound Transit: 40.",
     )
+    parser.add_argument(
+        "--ridership-boardings-csv",
+        help=(
+            "Optional CSV with station_id and annual_boardings_millions (Sound Transit style). "
+            "Blends ridership into activity_raw before rank/score normalization."
+        ),
+    )
     return parser.parse_args()
 
 
@@ -197,6 +204,22 @@ def main() -> None:
 
     vectors = stations.merge(density, on="station_id", how="left")
     vectors["activity_raw"] = activity_proxy_from_density_and_connectivity(vectors)
+    if args.ridership_boardings_csv:
+        board_path = Path(args.ridership_boardings_csv)
+        if board_path.exists() and board_path.stat().st_size > 0:
+            board = pd.read_csv(board_path, comment="#")
+            if "station_id" in board.columns and "annual_boardings_millions" in board.columns:
+                board = board[["station_id", "annual_boardings_millions"]].copy()
+                board["annual_boardings_millions"] = pd.to_numeric(
+                    board["annual_boardings_millions"], errors="coerce"
+                ).fillna(0.0)
+                vectors = vectors.merge(board, on="station_id", how="left")
+                median_b = float(vectors["annual_boardings_millions"].median(skipna=True) or 0.8)
+                vectors["annual_boardings_millions"] = vectors["annual_boardings_millions"].fillna(median_b)
+                bm = vectors["annual_boardings_millions"].to_numpy(dtype=float)
+                scale = 0.55 + 0.45 * (bm / (float(bm.max()) + 1e-9))
+                vectors["activity_raw"] = vectors["activity_raw"] * scale
+                vectors = vectors.drop(columns=["annual_boardings_millions"])
     vectors = add_rank_and_scores(vectors, "activity_raw", "connectivity_raw")
 
     output_columns = [

@@ -60,6 +60,15 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--test-size", type=float, default=0.25)
     parser.add_argument("--random-state", type=int, default=42)
+    parser.add_argument(
+        "--demo-hackathon-transit-effects",
+        action="store_true",
+        help=(
+            "When scoring a scenario vs baseline, apply transparent heuristics: slight downtown "
+            "peak relief when new scheduled service is added (mode-shift proxy), and a small "
+            "east-corridor demand lift so East Link shows on the map. For demo / storytelling only."
+        ),
+    )
     return parser.parse_args()
 
 
@@ -297,6 +306,62 @@ def apply_event_surplus(
     return result
 
 
+def apply_demo_hackathon_transit_effects(
+    output: pd.DataFrame,
+    baseline_candidates: pd.DataFrame,
+) -> pd.DataFrame:
+    """Post-process scenario vs baseline deltas for hackathon demo storytelling (not causal)."""
+    keys = ["cell_id", "day_of_week"]
+    if "time_bin" in output.columns and "time_bin" in baseline_candidates.columns:
+        keys.append("time_bin")
+    else:
+        keys.append("hour")
+
+    base_sched = baseline_candidates[keys + ["scheduled_trains"]].rename(
+        columns={"scheduled_trains": "baseline_scheduled_trains"}
+    )
+    out = output.merge(base_sched, on=keys, how="left")
+    if "hour" not in out.columns and "time_bin" in out.columns:
+        out["hour"] = (pd.to_numeric(out["time_bin"], errors="coerce").fillna(0) // 60).astype(int)
+    elif "hour" not in out.columns:
+        out["hour"] = 12
+    scen_sched = pd.to_numeric(out.get("scheduled_trains"), errors="coerce").fillna(0.0).to_numpy()
+    base_sched_v = pd.to_numeric(out["baseline_scheduled_trains"], errors="coerce").fillna(0.0).to_numpy()
+    extra = scen_sched - base_sched_v
+    line_strength = float(np.nanmax(extra)) if extra.size else 0.0
+    if line_strength < 0.25:
+        return output
+
+    lat = pd.to_numeric(out["center_lat"], errors="coerce").fillna(0.0).to_numpy()
+    lon = pd.to_numeric(out["center_lon"], errors="coerce").fillna(0.0).to_numpy()
+    hour = pd.to_numeric(out["hour"], errors="coerce").fillna(12).astype(int).to_numpy()
+    base_raw = pd.to_numeric(out["baseline_demand_pressure_raw"], errors="coerce").fillna(0.0).to_numpy()
+    sraw = pd.to_numeric(out["scenario_demand_pressure_raw"], errors="coerce").fillna(0.0).to_numpy().copy()
+
+    downtown = (lat >= 47.575) & (lat <= 47.625) & (lon >= -122.355) & (lon <= -122.305)
+    peak = np.isin(hour, [7, 8, 9, 16, 17, 18])
+    relief_mask = downtown & peak
+    alpha = min(0.16, 0.055 + 0.10 * min(line_strength / 18.0, 1.0))
+    adj = alpha * base_raw
+    sraw[relief_mask] = np.maximum(sraw[relief_mask] - adj[relief_mask], base_raw[relief_mask] * 0.52)
+
+    east = (lon > -122.265) & (lat > 47.555) & (lat < 47.62) & peak & (extra > 0.05)
+    beta = min(0.085, 0.025 + 0.06 * min(line_strength / 18.0, 1.0))
+    sraw[east] = sraw[east] + beta * base_raw[east]
+
+    out["scenario_demand_pressure_raw"] = sraw
+    out["demand_delta"] = out["scenario_demand_pressure_raw"] - out["baseline_demand_pressure_raw"]
+    denom = out["baseline_demand_pressure_raw"].replace(0, np.nan)
+    out["percent_change"] = (out["demand_delta"] / denom * 100).replace([np.inf, -np.inf], np.nan).fillna(0)
+    out["scenario_demand_pressure"] = min_max(out["scenario_demand_pressure_raw"])
+    out["scenario_demand_score"] = out["scenario_demand_pressure"]
+    out["demand_score"] = out["scenario_demand_score"]
+    drop_cols = [c for c in ("baseline_scheduled_trains",) if c in out.columns]
+    if drop_cols:
+        out = out.drop(columns=drop_cols)
+    return out
+
+
 def scenario_delta(baseline: pd.DataFrame, scenario: pd.DataFrame) -> pd.DataFrame:
     keys = ["cell_id", "day_of_week"]
     if "time_bin" in baseline.columns and "time_bin" in scenario.columns:
@@ -368,6 +433,8 @@ def main() -> None:
         args.event_tail_decay,
     )
     output = scenario_delta(baseline, scenario)
+    if args.demo_hackathon_transit_effects and args.scenario_features:
+        output = apply_demo_hackathon_transit_effects(output, baseline_candidates)
 
     output_path = out_dir / (
         DEMAND_HEATMAP_SCENARIO_PREDICTIONS_CSV

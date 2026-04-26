@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import json
-from dataclasses import dataclass
+import uuid
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -21,6 +22,7 @@ from src.common.artifacts import (
 )
 from src.runtime.clock import SimulationClock
 from src.runtime.composer import FrameComposer
+from src.runtime.demo_corridor import PointKernel
 from src.runtime.overlays import LiveOverlayManager
 from src.runtime.playback import PlaybackController
 from src.runtime.state import ScenarioStateManager
@@ -61,6 +63,7 @@ class HeatmapRuntime:
     composer: FrameComposer
     frame_interval_seconds: float = 1.0
     active_display_scenario_id: str = "state_baseline"
+    demo_extra_stops: dict[str, PointKernel] = field(default_factory=dict)
 
     @classmethod
     def create(
@@ -71,10 +74,14 @@ class HeatmapRuntime:
         time_bin_minutes: int = 30,
         frame_interval_seconds: float = 1.0,
         display_threshold: float = 0.0,
-        display_floor: float = 0.13,
-        display_ceiling: float = 0.75,
-        display_gamma: float = 0.75,
-        scenario_delta_multiplier: float = 3.0,
+        display_floor: float = 0.05,
+        display_ceiling: float = 0.78,
+        display_gamma: float = 0.62,
+        scenario_delta_multiplier: float = 0.0,
+        per_frame_quantile_normalize: bool = False,
+        demo_corridor_boost: bool = True,
+        demo_corridor_relief_strength: float = 1.0,
+        demo_corridor_replaces_scenarios: bool = True,
     ) -> "HeatmapRuntime":
         baseline = DemandFrameStore.from_predictions_csv(baseline_csv)
         clock = SimulationClock(
@@ -94,6 +101,10 @@ class HeatmapRuntime:
             display_ceiling=display_ceiling,
             display_gamma=display_gamma,
             scenario_delta_multiplier=scenario_delta_multiplier,
+            per_frame_quantile_normalize=per_frame_quantile_normalize,
+            demo_corridor_boost=demo_corridor_boost,
+            demo_corridor_relief_strength=demo_corridor_relief_strength,
+            demo_corridor_replaces_scenarios=demo_corridor_replaces_scenarios,
         )
         return cls(
             baseline=baseline,
@@ -113,10 +124,14 @@ def create_app(
     time_bin_minutes: int = 30,
     frame_interval_seconds: float = 1.0,
     display_threshold: float = 0.0,
-    display_floor: float = 0.13,
-    display_ceiling: float = 0.75,
-    display_gamma: float = 0.75,
-    scenario_delta_multiplier: float = 3.0,
+    display_floor: float = 0.05,
+    display_ceiling: float = 0.78,
+    display_gamma: float = 0.62,
+    scenario_delta_multiplier: float = 0.0,
+    per_frame_quantile_normalize: bool = False,
+    demo_corridor_boost: bool = True,
+    demo_corridor_relief_strength: float = 1.0,
+    demo_corridor_replaces_scenarios: bool = True,
 ) -> FastAPI:
     runtime = HeatmapRuntime.create(
         baseline_csv=baseline_csv,
@@ -128,6 +143,10 @@ def create_app(
         display_ceiling=display_ceiling,
         display_gamma=display_gamma,
         scenario_delta_multiplier=scenario_delta_multiplier,
+        per_frame_quantile_normalize=per_frame_quantile_normalize,
+        demo_corridor_boost=demo_corridor_boost,
+        demo_corridor_relief_strength=demo_corridor_relief_strength,
+        demo_corridor_replaces_scenarios=demo_corridor_replaces_scenarios,
     )
     app = FastAPI(title="Demand Heatmap Runtime")
     app.state.runtime = runtime
@@ -197,6 +216,7 @@ def create_app(
         frame = runtime.composer.compose(
             tick=runtime.playback.current_tick,
             sim_time=runtime.playback.current_time,
+            display_scenario_id=runtime.active_display_scenario_id,
         )
         densities = [float(cell[2]) for cell in frame.cells]
         return {
@@ -217,6 +237,77 @@ def create_app(
                 "live_overlay_count": len(runtime.live_overlays.to_list()),
             },
         }
+
+    @app.get("/api/demo/state")
+    async def get_demo_state():
+        """Snapshot of every runtime knob the World Cup demo can manipulate."""
+        return {
+            "scenario_id": runtime.active_display_scenario_id,
+            "relief_strength": runtime.composer.demo_corridor_relief_strength,
+            "demo_corridor_boost": runtime.composer.demo_corridor_boost,
+            "demo_corridor_replaces_scenarios": runtime.composer.demo_corridor_replaces_scenarios,
+            "extra_stops": [stop_to_dict(stop_id, stop) for stop_id, stop in runtime.demo_extra_stops.items()],
+        }
+
+    @app.post("/api/demo/relief")
+    async def set_demo_relief(payload: dict[str, Any]):
+        """World Cup "more train cars" lever: scales how aggressively active
+        lines absorb crowd / corridor heat. Sensible range is [0.0, 2.5];
+        clamped to [0, 4]. 1.0 is the default (lines fully drain their
+        catchment); 0.0 disables relief."""
+        try:
+            strength = float(payload.get("strength", 1.0))
+        except (TypeError, ValueError) as error:
+            raise HTTPException(status_code=400, detail="strength must be numeric") from error
+        strength = max(0.0, min(strength, 4.0))
+        runtime.composer.demo_corridor_relief_strength = strength
+        return {"strength": strength}
+
+    @app.get("/api/demo/relief")
+    async def get_demo_relief():
+        return {"strength": runtime.composer.demo_corridor_relief_strength}
+
+    @app.post("/api/demo/stops")
+    async def add_demo_stop(payload: dict[str, Any]):
+        """Add a "drag-and-drop" relief station (peak demand it absorbs and the
+        radius of its catchment). Returns the assigned stop_id. POST
+        {"lat":, "lon":, "peak":, "decay_m":, "max_m":}."""
+        try:
+            lat = float(payload["lat"])
+            lon = float(payload["lon"])
+        except (KeyError, TypeError, ValueError) as error:
+            raise HTTPException(status_code=400, detail="lat / lon required") from error
+        peak = float(payload.get("peak", 0.45))
+        decay_m = float(payload.get("decay_m", 700.0))
+        max_m = float(payload.get("max_m", 2200.0))
+        peak = max(0.0, min(peak, 1.0))
+        decay_m = max(50.0, min(decay_m, 5000.0))
+        max_m = max(decay_m, min(max_m, 12_000.0))
+        kernel = PointKernel(lat=lat, lon=lon, peak=peak, decay_m=decay_m, max_m=max_m)
+        stop_id = str(uuid.uuid4())
+        runtime.demo_extra_stops[stop_id] = kernel
+        runtime.composer.demo_extra_stops = list(runtime.demo_extra_stops.values())
+        return stop_to_dict(stop_id, kernel)
+
+    @app.get("/api/demo/stops")
+    async def list_demo_stops():
+        return {
+            "stops": [stop_to_dict(stop_id, stop) for stop_id, stop in runtime.demo_extra_stops.items()],
+        }
+
+    @app.delete("/api/demo/stops/{stop_id}")
+    async def delete_demo_stop(stop_id: str):
+        if stop_id not in runtime.demo_extra_stops:
+            raise HTTPException(status_code=404, detail="stop not found")
+        runtime.demo_extra_stops.pop(stop_id)
+        runtime.composer.demo_extra_stops = list(runtime.demo_extra_stops.values())
+        return {"deleted": stop_id}
+
+    @app.delete("/api/demo/stops")
+    async def clear_demo_stops():
+        runtime.demo_extra_stops.clear()
+        runtime.composer.demo_extra_stops = []
+        return {"deleted": "all"}
 
     @app.post("/api/scenario")
     async def set_display_scenario(payload: dict[str, Any]):
@@ -352,7 +443,11 @@ async def stream_frames(request: Request, runtime: HeatmapRuntime):
                 yield sse_event(event_id, "scenario", {"scenario_id": sent_display_scenario_id})
                 event_id += 1
             sim_time = runtime.playback.current_time
-            frame = runtime.composer.compose(tick=runtime.playback.current_tick, sim_time=sim_time)
+            frame = runtime.composer.compose(
+                tick=runtime.playback.current_tick,
+                sim_time=sim_time,
+                display_scenario_id=runtime.active_display_scenario_id,
+            )
             yield sse_event(event_id, "frame", frame.to_dict())
             event_id += 1
             await asyncio.sleep(runtime.frame_interval_seconds)
@@ -446,3 +541,14 @@ def resolve_path(value: str) -> Path:
     if path.is_absolute():
         return path
     return Path.cwd() / path
+
+
+def stop_to_dict(stop_id: str, stop: PointKernel) -> dict[str, Any]:
+    return {
+        "id": stop_id,
+        "lat": stop.lat,
+        "lon": stop.lon,
+        "peak": stop.peak,
+        "decay_m": stop.decay_m,
+        "max_m": stop.max_m,
+    }

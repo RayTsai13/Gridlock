@@ -24,10 +24,39 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--time-bin-minutes", type=int, default=30)
     parser.add_argument("--frame-interval-seconds", type=float, default=1.0)
     parser.add_argument("--display-threshold", type=float, default=0.0)
-    parser.add_argument("--display-floor", type=float, default=0.13)
-    parser.add_argument("--display-ceiling", type=float, default=0.75)
-    parser.add_argument("--display-gamma", type=float, default=0.75)
-    parser.add_argument("--scenario-delta-multiplier", type=float, default=3.0)
+    parser.add_argument("--display-floor", type=float, default=0.05)
+    parser.add_argument("--display-ceiling", type=float, default=0.78)
+    parser.add_argument("--display-gamma", type=float, default=0.62)
+    parser.add_argument(
+        "--scenario-delta-multiplier",
+        type=float,
+        default=0.0,
+        help=(
+            "Multiplier on precomputed scenario deltas. Defaults to 0.0 because the runtime demo "
+            "corridor model fully drives line cause/effect. Bump above 0 to layer the trained deltas."
+        ),
+    )
+    parser.add_argument(
+        "--per-frame-quantile-normalize",
+        action="store_true",
+        help="Stretch each frame to 6th-94th percentile (off by default; absolute reductions show clearly).",
+    )
+    parser.add_argument(
+        "--no-demo-corridor-boost",
+        action="store_true",
+        help="Disable runtime latent-demand and per-line relief overlay (revert to precomputed predictions only).",
+    )
+    parser.add_argument(
+        "--no-demo-corridor-replaces-scenarios",
+        action="store_true",
+        help="Apply precomputed scenario_state deltas alongside the demo corridor instead of replacing them.",
+    )
+    parser.add_argument(
+        "--demo-corridor-relief-strength",
+        type=float,
+        default=1.0,
+        help="Initial relief multiplier (live POST /api/demo/relief while running).",
+    )
     parser.add_argument(
         "--shutdown-timeout-seconds",
         type=int,
@@ -49,6 +78,10 @@ def main() -> None:
         display_ceiling=args.display_ceiling,
         display_gamma=args.display_gamma,
         scenario_delta_multiplier=args.scenario_delta_multiplier,
+        per_frame_quantile_normalize=args.per_frame_quantile_normalize,
+        demo_corridor_boost=not args.no_demo_corridor_boost,
+        demo_corridor_relief_strength=args.demo_corridor_relief_strength,
+        demo_corridor_replaces_scenarios=not args.no_demo_corridor_replaces_scenarios,
     )
     uvicorn.run(
         app,

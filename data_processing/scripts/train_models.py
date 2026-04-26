@@ -27,6 +27,11 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Also run the older passenger-flow timelapse scorer.",
     )
+    parser.add_argument(
+        "--hackathon-demo-scenarios",
+        action="store_true",
+        help="After demand training, build scenarios/line-1-2 and scenarios/line-1-2-ballard for the runtime API.",
+    )
     return parser.parse_args()
 
 
@@ -84,6 +89,9 @@ def main() -> None:
                 model_output_dir,
             )
         )
+
+    if args.hackathon_demo_scenarios and not args.skip_demand:
+        run(py("scripts/build_hackathon_scenario_outputs.py", "--processed-dir", processed_dir, "--features-dir", features_dir))
 
 
 if __name__ == "__main__":

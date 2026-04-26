@@ -15,6 +15,7 @@ import {
 
 const STREAM_URL = '/api/heatmap/stream';
 
+
 export type HeatmapApi = {
   geojson: FeatureCollection<Point>;
   /** Last scenario_id confirmed by the server via a `scenario` event. */
