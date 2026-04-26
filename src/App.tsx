@@ -392,7 +392,7 @@ function App() {
 
   // Deploy state: index of the highest deployed step (0 = Line 1 only)
   const [deployedIndex, setDeployedIndex] = useState(0);
-  const [isHeatmapVisible, setIsHeatmapVisible] = useState(true);
+  const [isHeatmapVisible, setIsHeatmapVisible] = useState(false);
   const [demandTooltip, setDemandTooltip] = useState<DemandTooltip | null>(
     null,
   );
@@ -424,6 +424,7 @@ function App() {
   const selectedDayRef = useRef(dayOfWeek);
   const [isDraggingDial, setIsDraggingDial] = useState(false);
   const mapRef = useRef<MapRef | null>(null);
+  const [isMapLoaded, setIsMapLoaded] = useState(false);
   const [offscreenArrow, setOffscreenArrow] = useState<{
     x: number;
     y: number;
@@ -1012,6 +1013,7 @@ function App() {
   const handleMapLoad = useCallback(
     (event: { target: MapLibreMap }) => {
       applyBasemapPalette(event.target);
+      setIsMapLoaded(true);
 
       if (mapRef.current) {
         updateBuildingsForViewport(mapRef.current);
@@ -1020,8 +1022,27 @@ function App() {
     [],
   );
 
+  const initialBuildingRegionLoaded = Boolean(
+    regionCollections[REGION_LOAD_ORDER[0]] || regionErrors[REGION_LOAD_ORDER[0]],
+  );
+  const initialHeatmapStreamLoaded = Boolean(
+    heatmapDiagnostics.config &&
+      heatmapDiagnostics.confirmedScenarioId &&
+      heatmapDiagnostics.lastFrameAt &&
+      playback,
+  );
+  const isAppReady =
+    isMapLoaded && initialBuildingRegionLoaded && initialHeatmapStreamLoaded;
+  const loadingStatus = !isMapLoaded
+    ? "Loading map"
+    : !initialBuildingRegionLoaded
+      ? "Loading city model"
+      : !initialHeatmapStreamLoaded
+        ? "Syncing simulator"
+        : "Ready";
+
   return (
-    <div className="map-shell">
+    <div className={`map-shell ${isAppReady ? "is-ready" : "is-loading"}`}>
       <Map
         ref={mapRef}
         initialViewState={initialViewState}
@@ -1358,6 +1379,23 @@ function App() {
                 {backendIsPlaying ? "PAUSE" : "PLAY"}
               </button>
             </div>
+          </div>
+        </div>
+      </div>
+
+      <div
+        className={`app-loading-screen ${isAppReady ? "is-complete" : ""}`}
+        aria-hidden={isAppReady}
+      >
+        <div className="app-loading-panel">
+          <div className="loading-kicker">Gridlock</div>
+          <div className="loading-title">Seattle Transit Sim</div>
+          <div className="loading-status">{loadingStatus}</div>
+          <div className="loading-track" aria-hidden="true" />
+          <div className="loading-steps" aria-hidden="true">
+            <span className={isMapLoaded ? "is-done" : ""} />
+            <span className={initialBuildingRegionLoaded ? "is-done" : ""} />
+            <span className={initialHeatmapStreamLoaded ? "is-done" : ""} />
           </div>
         </div>
       </div>
