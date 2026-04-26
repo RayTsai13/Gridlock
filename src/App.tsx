@@ -7,6 +7,7 @@ import {
   Marker,
 } from "react-map-gl/maplibre";
 import type { FeatureCollection, Geometry, Point } from "geojson";
+import type { Map as MapLibreMap } from "maplibre-gl";
 import type { LayerProps } from "react-map-gl/maplibre";
 import type {
   MapLayerMouseEvent,
@@ -168,6 +169,50 @@ const buildingFillLayer: LayerProps = {
     "fill-extrusion-vertical-gradient": true,
   },
 };
+
+const BASEMAP_WATER_COLOR = "#a9d8f3";
+const BASEMAP_WATER_SHADOW_COLOR = "#8fc5e4";
+const BASEMAP_WATERWAY_COLOR = "#87c7ea";
+const BASEMAP_GREENERY_COLOR = "#cfe7bf";
+
+type BasemapLayer = {
+  id: string;
+  type: string;
+  "source-layer"?: string;
+};
+
+function applyBasemapPalette(map: MapLibreMap) {
+  const style = map.getStyle();
+  const layers = (style?.layers ?? []) as BasemapLayer[];
+
+  for (const layer of layers) {
+    if (layer.type === "fill") {
+      if (layer.id === "water") {
+        map.setPaintProperty(layer.id, "fill-color", BASEMAP_WATER_COLOR);
+        continue;
+      }
+
+      if (layer.id === "water_shadow") {
+        map.setPaintProperty(
+          layer.id,
+          "fill-color",
+          BASEMAP_WATER_SHADOW_COLOR,
+        );
+        continue;
+      }
+
+      if (layer.id === "landcover" || layer["source-layer"] === "park") {
+        map.setPaintProperty(layer.id, "fill-color", BASEMAP_GREENERY_COLOR);
+      }
+
+      continue;
+    }
+
+    if (layer.type === "line" && layer["source-layer"] === "waterway") {
+      map.setPaintProperty(layer.id, "line-color", BASEMAP_WATERWAY_COLOR);
+    }
+  }
+}
 
 async function fetchRegionBuildings(
   region: BuildingRegion,
@@ -354,8 +399,8 @@ function App() {
   }, [deployedIndex]);
 
   const stopsGeoJSON = useMemo(
-    () => stopsToGeoJSON(activeStops),
-    [activeStops],
+    () => stopsToGeoJSON(activeStops, activeLines),
+    [activeStops, activeLines],
   );
   const linesGeoJSON = useMemo(
     () => linesToGeoJSON(activeLines, activeStops),
@@ -752,6 +797,17 @@ function App() {
     [],
   );
 
+  const handleMapLoad = useCallback(
+    (event: { target: MapLibreMap }) => {
+      applyBasemapPalette(event.target);
+
+      if (mapRef.current) {
+        updateBuildingsForViewport(mapRef.current);
+      }
+    },
+    [],
+  );
+
   return (
     <div className="map-shell">
       <Map
@@ -761,9 +817,7 @@ function App() {
         style={{ width: "100vw", height: "100vh" }}
         onClick={handleMapClick}
         onMove={handleMapMove}
-        onLoad={(event) =>
-          updateBuildingsForViewport(event.target as unknown as MapRef)
-        }
+        onLoad={handleMapLoad}
         onMoveEnd={(event) =>
           updateBuildingsForViewport(event.target as unknown as MapRef)
         }

@@ -160,14 +160,175 @@ export const EXPANSION_MODES: ExpansionMode[] = [
 // GeoJSON helpers
 // ---------------------------------------------------------------------------
 
-export function stopsToGeoJSON(stops: TransitStop[]): FeatureCollection<Point> {
+type RgbColor = [red: number, green: number, blue: number];
+type HslColor = [hue: number, saturation: number, lightness: number];
+
+function hexToRgb(hex: string): RgbColor {
+  const normalized = hex.trim().replace('#', '');
+  const expanded = normalized.length === 3
+    ? normalized.split('').map((value) => value + value).join('')
+    : normalized;
+
+  if (!/^[0-9a-fA-F]{6}$/.test(expanded)) {
+    throw new Error(`Unsupported color format: ${hex}`);
+  }
+
+  return [
+    Number.parseInt(expanded.slice(0, 2), 16),
+    Number.parseInt(expanded.slice(2, 4), 16),
+    Number.parseInt(expanded.slice(4, 6), 16),
+  ];
+}
+
+function rgbToHex([red, green, blue]: RgbColor): string {
+  return `#${[red, green, blue]
+    .map((value) => Math.max(0, Math.min(255, Math.round(value))).toString(16).padStart(2, '0'))
+    .join('')}`;
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value));
+}
+
+function rgbToHsl([red, green, blue]: RgbColor): HslColor {
+  const r = red / 255;
+  const g = green / 255;
+  const b = blue / 255;
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  const lightness = (max + min) / 2;
+  const delta = max - min;
+
+  if (delta === 0) {
+    return [0, 0, lightness];
+  }
+
+  const saturation = lightness > 0.5
+    ? delta / (2 - max - min)
+    : delta / (max + min);
+
+  let hue: number;
+  switch (max) {
+    case r:
+      hue = ((g - b) / delta + (g < b ? 6 : 0)) * 60;
+      break;
+    case g:
+      hue = ((b - r) / delta + 2) * 60;
+      break;
+    default:
+      hue = ((r - g) / delta + 4) * 60;
+      break;
+  }
+
+  return [hue, saturation, lightness];
+}
+
+function hslToRgb([hue, saturation, lightness]: HslColor): RgbColor {
+  const normalizedHue = ((hue % 360) + 360) % 360;
+  const chroma = (1 - Math.abs(2 * lightness - 1)) * saturation;
+  const huePrime = normalizedHue / 60;
+  const x = chroma * (1 - Math.abs((huePrime % 2) - 1));
+
+  let rgb: [number, number, number];
+  if (huePrime < 1) {
+    rgb = [chroma, x, 0];
+  } else if (huePrime < 2) {
+    rgb = [x, chroma, 0];
+  } else if (huePrime < 3) {
+    rgb = [0, chroma, x];
+  } else if (huePrime < 4) {
+    rgb = [0, x, chroma];
+  } else if (huePrime < 5) {
+    rgb = [x, 0, chroma];
+  } else {
+    rgb = [chroma, 0, x];
+  }
+
+  const match = lightness - chroma / 2;
+  return [
+    (rgb[0] + match) * 255,
+    (rgb[1] + match) * 255,
+    (rgb[2] + match) * 255,
+  ];
+}
+
+function blendHexColors(colors: string[]): string {
+  if (colors.length === 0) {
+    return '#1a73e8';
+  }
+
+  if (colors.length === 1) {
+    return colors[0];
+  }
+
+  const hslColors = colors.map((color) => rgbToHsl(hexToRgb(color)));
+  const [hueX, hueY, saturationTotal, lightnessTotal] = hslColors.reduce(
+    (accumulator, [hue, saturation, lightness]) => [
+      accumulator[0] + Math.cos((hue * Math.PI) / 180),
+      accumulator[1] + Math.sin((hue * Math.PI) / 180),
+      accumulator[2] + saturation,
+      accumulator[3] + lightness,
+    ],
+    [0, 0, 0, 0],
+  );
+
+  const averageHue = hueX === 0 && hueY === 0
+    ? hslColors[0][0]
+    : ((Math.atan2(hueY, hueX) * 180) / Math.PI + 360) % 360;
+  const averageSaturation = saturationTotal / colors.length;
+  const averageLightness = lightnessTotal / colors.length;
+  const tunedSaturation = clamp(
+    Math.max(averageSaturation, 0.62) + (colors.length === 2 ? 0.18 : 0.12),
+    0,
+    1,
+  );
+  const targetLightness = colors.length === 2 ? 0.5 : 0.56;
+  const tunedLightness = clamp((averageLightness + targetLightness) / 2, 0, 1);
+
+  return rgbToHex(hslToRgb([averageHue, tunedSaturation, tunedLightness]));
+}
+
+function buildStopServiceMap(lines: TransitLine[]): Map<string, TransitLine[]> {
+  const servicesByStopId = new Map<string, TransitLine[]>();
+
+  for (const line of lines) {
+    for (const stopId of line.stopIds) {
+      const servedLines = servicesByStopId.get(stopId);
+      if (servedLines) {
+        servedLines.push(line);
+      } else {
+        servicesByStopId.set(stopId, [line]);
+      }
+    }
+  }
+
+  return servicesByStopId;
+}
+
+export function stopsToGeoJSON(
+  stops: TransitStop[],
+  lines: TransitLine[],
+): FeatureCollection<Point> {
+  const servicesByStopId = buildStopServiceMap(lines);
+
   return {
     type: 'FeatureCollection',
-    features: stops.map((stop) => ({
-      type: 'Feature' as const,
-      geometry: { type: 'Point' as const, coordinates: stop.coordinates },
-      properties: { id: stop.id, name: stop.name },
-    })),
+    features: stops.map((stop) => {
+      const servedLines = servicesByStopId.get(stop.id) ?? [];
+      const lineColors = servedLines.map((line) => line.color);
+
+      return {
+        type: 'Feature' as const,
+        geometry: { type: 'Point' as const, coordinates: stop.coordinates },
+        properties: {
+          id: stop.id,
+          name: stop.name,
+          lineCount: servedLines.length,
+          lineIds: servedLines.map((line) => line.id).join(','),
+          markerColor: blendHexColors(lineColors),
+        },
+      };
+    }),
   };
 }
 
