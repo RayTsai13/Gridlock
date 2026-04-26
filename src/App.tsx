@@ -15,7 +15,6 @@ import type {
 } from "react-map-gl/maplibre";
 import "maplibre-gl/dist/maplibre-gl.css";
 import "./App.css";
-import { postPeople } from "./heatmap/api.ts";
 import { useHeatmap } from "./heatmap/stream.ts";
 import { heatmapLayer } from "./heatmap/layer.ts";
 import { DEPLOY_STEPS, stopsToGeoJSON, linesToGeoJSON } from "./stops/data.ts";
@@ -247,6 +246,10 @@ function App() {
   const {
     geojson: heatmapData,
     setScenario,
+    playback,
+    setPlaying,
+    seekTo,
+    addPeople,
     diagnostics: heatmapDiagnostics,
   } = useHeatmap();
   const showHeatmapDebug = useMemo(
@@ -286,6 +289,8 @@ function App() {
   const [hoveredDay, setHoveredDay] = useState<number | null>(null);
   const hoverTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const dialRef = useRef<HTMLDivElement>(null);
+  const selectedTimeRef = useRef(timeOfDay);
+  const selectedDayRef = useRef(dayOfWeek);
   const [isDraggingDial, setIsDraggingDial] = useState(false);
   const mapRef = useRef<MapRef | null>(null);
   const [offscreenArrow, setOffscreenArrow] = useState<{
@@ -306,6 +311,28 @@ function App() {
     x: number;
     y: number;
   } | null>(null);
+
+  const backendIsPlaying = playback?.is_playing ?? isPlaying;
+
+  useEffect(() => {
+    if (!playback?.sim_time || isDraggingDial) return;
+    setDayOfWeek(playback.sim_time.day_of_week);
+    setTimeOfDay(playback.sim_time.time_bin);
+  }, [playback?.sim_time, isDraggingDial]);
+
+  useEffect(() => {
+    if (playback) {
+      setIsPlaying(playback.is_playing);
+    }
+  }, [playback]);
+
+  useEffect(() => {
+    selectedTimeRef.current = timeOfDay;
+  }, [timeOfDay]);
+
+  useEffect(() => {
+    selectedDayRef.current = dayOfWeek;
+  }, [dayOfWeek]);
 
   // ── Compute active stops/lines from deployed steps ──
   const { activeStops, activeLines } = useMemo(() => {
@@ -585,7 +612,7 @@ function App() {
 
   // ── Time controls ──
   const updateTimeFromPointer = (clientX: number, clientY: number) => {
-    if (!dialRef.current) return;
+    if (!dialRef.current) return timeOfDay;
     const rect = dialRef.current.getBoundingClientRect();
     const cx = rect.left + rect.width / 2;
     const cy = rect.top + rect.height / 2;
@@ -595,7 +622,9 @@ function App() {
     let newTime = Math.round((shiftedAngle / (2 * Math.PI)) * 1440);
     newTime = Math.round(newTime / 30) * 30;
     if (newTime >= 1440) newTime = 0;
+    selectedTimeRef.current = newTime;
     setTimeOfDay(newTime);
+    return newTime;
   };
 
   useEffect(() => {
@@ -606,6 +635,9 @@ function App() {
 
     const handlePointerUp = () => {
       setIsDraggingDial(false);
+      seekTo(selectedDayRef.current, selectedTimeRef.current).catch((err) => {
+        console.warn("[heatmap] failed to seek playback", err);
+      });
     };
 
     if (isDraggingDial) {
@@ -645,7 +677,7 @@ function App() {
           const lat = lngLat.lat + r * Math.cos(theta);
           const lon = lngLat.lng + r * Math.sin(theta);
 
-          postPeople(lat, lon, peoplePerDrop).catch(console.error);
+          addPeople(lat, lon, peoplePerDrop).catch(console.error);
         }
       }
     };
@@ -657,26 +689,20 @@ function App() {
       window.removeEventListener("pointermove", handlePointerMove);
       window.removeEventListener("pointerup", handlePointerUp);
     };
-  }, [isDraggingCrowd, crowdSize]);
-
-  useEffect(() => {
-    if (!isPlaying) return;
-    const interval = setInterval(() => {
-      setTimeOfDay((prev) => (prev >= 1410 ? 0 : prev + 30));
-    }, 200);
-    return () => clearInterval(interval);
-  }, [isPlaying]);
+  }, [isDraggingCrowd, crowdSize, addPeople]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.code === "Space") {
         e.preventDefault();
-        setIsPlaying((prev) => !prev);
+        setPlaying(!backendIsPlaying).catch((err) => {
+          console.warn("[heatmap] failed to update playback", err);
+        });
       }
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, []);
+  }, [backendIsPlaying, setPlaying]);
 
   const formatTime = (minutes: number) => {
     const hours = Math.floor(minutes / 60);
@@ -893,6 +919,13 @@ function App() {
             confirmed: {heatmapDiagnostics.confirmedScenarioId ?? "none"}
           </span>
           <span>frames: {heatmapDiagnostics.frameCount}</span>
+          <span>playing: {backendIsPlaying ? "yes" : "no"}</span>
+          <span>
+            sim:{" "}
+            {heatmapDiagnostics.simTime
+              ? `d${heatmapDiagnostics.simTime.day_of_week} ${formatTime(heatmapDiagnostics.simTime.time_bin)}`
+              : "none"}
+          </span>
           <span>features: {heatmapDiagnostics.featureCount}</span>
           <span>cells: {heatmapDiagnostics.lastFrameCellCount}</span>
           <span>
@@ -923,7 +956,13 @@ function App() {
               style={
                 { "--x": `${x}px`, "--y": `${y}px` } as React.CSSProperties
               }
-              onClick={() => setDayOfWeek(index)}
+              onClick={() => {
+                selectedDayRef.current = index;
+                setDayOfWeek(index);
+                seekTo(index, selectedTimeRef.current).catch((err) => {
+                  console.warn("[heatmap] failed to seek playback day", err);
+                });
+              }}
               onMouseEnter={() => {
                 if (hoverTimeoutRef.current)
                   clearTimeout(hoverTimeoutRef.current);
@@ -994,11 +1033,13 @@ function App() {
                 className="dial-play-btn"
                 onClick={(e) => {
                   e.stopPropagation();
-                  setIsPlaying(!isPlaying);
+                  setPlaying(!backendIsPlaying).catch((err) => {
+                    console.warn("[heatmap] failed to update playback", err);
+                  });
                 }}
-                aria-label={isPlaying ? "Pause" : "Play"}
+                aria-label={backendIsPlaying ? "Pause" : "Play"}
               >
-                {isPlaying ? "PAUSE" : "PLAY"}
+                {backendIsPlaying ? "PAUSE" : "PLAY"}
               </button>
             </div>
           </div>

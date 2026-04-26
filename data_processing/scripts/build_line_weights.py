@@ -131,11 +131,8 @@ def static_grid_context(candidates: pd.DataFrame) -> pd.DataFrame:
         "center_lon",
         "distance_weighted_residential_density",
         "distance_weighted_office_jobs",
-        "distance_weighted_station_activity",
         "distance_weighted_connectivity",
         "distance_weighted_transfer_score",
-        "stations_within_500m",
-        "stations_within_1000m",
         "daily_scheduled_trains",
         "learned_demand_potential",
         "dispersion_weight",
@@ -148,9 +145,8 @@ def static_grid_context(candidates: pd.DataFrame) -> pd.DataFrame:
     heuristic_catchment = (
         0.35 * min_max(context["distance_weighted_residential_density"])
         + 0.25 * min_max(context["distance_weighted_office_jobs"])
-        + 0.15 * min_max(context["distance_weighted_station_activity"])
-        + 0.15 * min_max(context["distance_weighted_connectivity"])
-        + 0.10 * min_max(context["daily_scheduled_trains"])
+        + 0.25 * min_max(context["distance_weighted_connectivity"])
+        + 0.15 * min_max(context["daily_scheduled_trains"])
     )
     context["catchment_demand_score"] = (
         0.60 * min_max(context["learned_demand_potential"])
@@ -158,10 +154,8 @@ def static_grid_context(candidates: pd.DataFrame) -> pd.DataFrame:
         + 0.15 * min_max(context["dispersion_weight"])
     )
     context["junction_context_score"] = (
-        0.35 * min_max(context["distance_weighted_connectivity"])
-        + 0.25 * min_max(context["distance_weighted_transfer_score"])
-        + 0.20 * min_max(context["stations_within_500m"])
-        + 0.20 * min_max(context["stations_within_1000m"])
+        0.60 * min_max(context["distance_weighted_connectivity"])
+        + 0.40 * min_max(context["distance_weighted_transfer_score"])
     )
     return context
 

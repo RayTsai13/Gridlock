@@ -30,12 +30,38 @@ The key difference is that baseline data is built offline, while scenarios are a
 The current frontend already matches this direction: `src/heatmap/stream.ts` opens an SSE connection to `/api/heatmap/stream`, converts each streamed frame into GeoJSON points, and feeds that GeoJSON to a MapLibre heatmap layer. The long-term architecture should preserve that contract and make the backend stream smarter.
 
 ```text
-baseline components + active scenario state + simulation clock
+baseline components + active scenario state + playback state + live overlays
   -> frame composer
   -> SSE frame
   -> MapLibre GeoJSON source
   -> MapLibre heatmap layer
 ```
+
+## Runtime Playback Contract
+
+The runtime server owns simulation time. The frontend sends playback commands and renders the `sim_time` attached to each streamed frame.
+
+Current playback defaults:
+
+- `frame_interval_seconds = 1.0`
+- `sim_step_seconds = 1800`
+- one streamed frame advances one 30-minute model bin while playback is running
+
+Playback API:
+
+- `GET /api/playback`: returns `is_playing`, `sim_step_seconds`, `sim_minutes_per_second`, and current `sim_time`.
+- `POST /api/playback`: updates `is_playing` and optionally `sim_minutes_per_second`.
+- `POST /api/playback/seek`: jumps to `minute_of_week`, or to `day_of_week` plus `time_bin`.
+
+When paused, the SSE connection stays open and the backend keeps composing the current frame without advancing `sim_time`. This keeps scenario and overlay state live while preventing frontend/backend clock drift.
+
+Live events and people drops are runtime overlays, not full model reruns. They are placed into the current simulation time, decay over a configurable duration, and are composed on top of:
+
+```text
+display frame = baseline frame + precomputed scenario deltas + live overlay deltas
+```
+
+This gives immediate feedback for crowd drops and event scenarios while preserving the option to run an async high-fidelity scenario job later.
 
 ## Offline Baseline Artifacts
 
@@ -89,12 +115,8 @@ Recommended component columns:
 - `relative_demand_pressure_raw`
 - `demand_score`
 
-Recommended raw feature columns for fast scenarios:
+Recommended raw feature columns for fast scenarios. Direct station-proximity fields should be kept out of demand scoring so adding stations does not create demand solely because a cell is near a station:
 
-- `nearest_station_distance_m`
-- `stations_within_500m`
-- `stations_within_1000m`
-- `distance_weighted_station_activity`
 - `distance_weighted_connectivity`
 - `distance_weighted_residential_density`
 - `distance_weighted_transfer_score`

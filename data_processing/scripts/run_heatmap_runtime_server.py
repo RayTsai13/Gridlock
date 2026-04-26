@@ -20,13 +20,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--baseline-csv", default=str(DEFAULT_BASELINE_CSV))
     parser.add_argument("--host", default="0.0.0.0")
     parser.add_argument("--port", type=int, default=8000)
-    parser.add_argument("--sim-step-seconds", type=int, default=30)
+    parser.add_argument("--sim-step-seconds", type=int, default=1800)
     parser.add_argument("--time-bin-minutes", type=int, default=30)
     parser.add_argument("--frame-interval-seconds", type=float, default=1.0)
     parser.add_argument("--display-threshold", type=float, default=0.0)
     parser.add_argument("--display-floor", type=float, default=0.13)
     parser.add_argument("--display-ceiling", type=float, default=0.75)
     parser.add_argument("--display-gamma", type=float, default=0.75)
+    parser.add_argument("--scenario-delta-multiplier", type=float, default=3.0)
     parser.add_argument(
         "--shutdown-timeout-seconds",
         type=int,
@@ -47,6 +48,7 @@ def main() -> None:
         display_floor=args.display_floor,
         display_ceiling=args.display_ceiling,
         display_gamma=args.display_gamma,
+        scenario_delta_multiplier=args.scenario_delta_multiplier,
     )
     uvicorn.run(
         app,

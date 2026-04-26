@@ -1,0 +1,3 @@
+sequence,station_id,station_name,lat,lon,hour,scheduled_trains
+1,judkins-park,Judkins Park,47.5907,-122.3043,8,8
+2,mercer-island,Mercer Island,47.5871,-122.2350,8,8
