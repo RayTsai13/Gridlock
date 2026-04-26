@@ -448,6 +448,7 @@ async def _stream(request: Request):
                 last_scenario = STATE.scenario_id
 
             frame = generate_frame(t, STATE.scenario_id, list(STATE.people.values()))
+            frame["state_version"] = f"state_v{STATE.version}"
             frame["sim_time"] = PLAYBACK.current_time.to_dict()
             yield _sse(event_id, "frame", frame)
             event_id += 1
@@ -500,7 +501,10 @@ async def post_scenario(payload: dict):
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     await STATE.notify_change()
-    return {"scenario_id": STATE.scenario_id}
+    frame = generate_frame(time.time(), STATE.scenario_id, list(STATE.people.values()))
+    frame["state_version"] = f"state_v{STATE.version}"
+    frame["sim_time"] = PLAYBACK.current_time.to_dict()
+    return {"scenario_id": STATE.scenario_id, "frame": frame}
 
 
 @app.get("/api/playback")

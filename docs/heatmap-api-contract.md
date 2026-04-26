@@ -20,10 +20,11 @@ The current runtime implementation lives in `data_processing/src/runtime/api.py`
 The frontend talks to the runtime over these surfaces:
 
 1. **SSE stream**: `GET /api/heatmap/stream`
-2. **Create scenario from precomputed delta**: `POST /api/scenarios`
-3. **Inspect current state**: `GET /api/states/current`
-4. **Inspect scenario status**: `GET /api/scenarios/{scenario_id}/status`
-5. **Inspect state delta summary**: `GET /api/states/{state_version}/deltas`
+2. **Set active display scenario**: `POST /api/scenario`
+3. **Create scenario from precomputed delta**: `POST /api/scenarios`
+4. **Inspect current state**: `GET /api/states/current`
+5. **Inspect scenario status**: `GET /api/scenarios/{scenario_id}/status`
+6. **Inspect state delta summary**: `GET /api/states/{state_version}/deltas`
 
 SSE is one-way from backend to frontend, so user actions that mutate state use HTTP requests alongside the stream.
 
@@ -169,6 +170,30 @@ score(state_after) - score(state_before)
 ```
 
 That is what lets the runtime handle scenarios introduced after previous user edits without always comparing to the original baseline.
+
+## `POST /api/scenario`
+
+Set the active display scenario used by the progressive track-deploy UI.
+
+The response includes the first composed frame for the new scenario. The frontend applies that frame immediately, then continues consuming SSE frames. This avoids waiting up to one stream interval for the heatmap to reflect a newly added track.
+
+### Response
+
+```json
+{
+  "scenario_id": "line-1-2",
+  "frame": {
+    "timestamp": 1714070400.0,
+    "state_version": "state_v2",
+    "sim_time": {
+      "day_of_week": 0,
+      "time_bin": 510,
+      "minute_of_week": 510
+    },
+    "cells": [[12, 34, 0.82]]
+  }
+}
+```
 
 ---
 

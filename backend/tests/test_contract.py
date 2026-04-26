@@ -96,6 +96,23 @@ def _parse_sse_event(block: str) -> dict:
     return out
 
 
+def _assert_frame_payload(payload: dict) -> None:
+    assert set(payload) == {"timestamp", "state_version", "sim_time", "cells"}
+    assert isinstance(payload["timestamp"], (int, float))
+    assert isinstance(payload["state_version"], str)
+    assert set(payload["sim_time"]) == {"day_of_week", "time_bin", "minute_of_week"}
+    assert isinstance(payload["cells"], list)
+
+    rows, cols = server.GRID.rows, server.GRID.cols
+    for cell in payload["cells"]:
+        assert isinstance(cell, list) and len(cell) == 3
+        row, col, density = cell
+        assert isinstance(row, int) and 0 <= row < rows
+        assert isinstance(col, int) and 0 <= col < cols
+        assert isinstance(density, (int, float))
+        assert 0.0 <= float(density) <= 1.0
+
+
 async def drive_stream(
     request: FakeRequest,
     n: int,
@@ -217,20 +234,7 @@ async def test_frame_payload_matches_documented_schema() -> None:
     assert frame["event"] == "frame"
 
     payload = frame["data"]
-    assert set(payload) == {"timestamp", "state_version", "sim_time", "cells"}
-    assert isinstance(payload["timestamp"], (int, float))
-    assert isinstance(payload["state_version"], str)
-    assert set(payload["sim_time"]) == {"day_of_week", "time_bin", "minute_of_week"}
-    assert isinstance(payload["cells"], list)
-
-    rows, cols = server.GRID.rows, server.GRID.cols
-    for cell in payload["cells"]:
-        assert isinstance(cell, list) and len(cell) == 3
-        row, col, density = cell
-        assert isinstance(row, int) and 0 <= row < rows
-        assert isinstance(col, int) and 0 <= col < cols
-        assert isinstance(density, (int, float))
-        assert 0.0 <= float(density) <= 1.0
+    _assert_frame_payload(payload)
 
 
 @pytest.mark.asyncio
@@ -323,7 +327,9 @@ def test_post_scenario_accepts_documented_ids(
 ) -> None:
     response = client.post("/api/scenario", json={"scenario_id": scenario_id})
     assert response.status_code == 200
-    assert response.json() == {"scenario_id": scenario_id}
+    payload = response.json()
+    assert payload["scenario_id"] == scenario_id
+    _assert_frame_payload(payload["frame"])
     assert server.STATE.scenario_id == scenario_id
 
 
@@ -362,7 +368,9 @@ def test_post_scenario_accepts_active_network_payload(client: TestClient) -> Non
     }
     response = client.post("/api/scenario", json=payload)
     assert response.status_code == 200
-    assert response.json() == {"scenario_id": "line-1"}
+    response_payload = response.json()
+    assert response_payload["scenario_id"] == "line-1"
+    _assert_frame_payload(response_payload["frame"])
     assert [stop.id for stop in server.STATE.active_network.stops] == [
         "custom-a",
         "custom-b",

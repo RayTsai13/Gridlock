@@ -18,6 +18,12 @@ import {
 
 const STREAM_URL = '/api/heatmap/stream';
 
+function stateVersionNumber(stateVersion?: string): number | null {
+  if (!stateVersion) return null;
+  const match = /^state_v(\d+)$/.exec(stateVersion);
+  return match ? Number.parseInt(match[1], 10) : null;
+}
+
 export type HeatmapApi = {
   geojson: FeatureCollection<Point>;
   /** Last scenario_id confirmed by the server via a `scenario` event. */
@@ -67,6 +73,7 @@ export function useHeatmap(): HeatmapApi {
     lastError: null,
   });
   const configRef = useRef<GridConfig | null>(null);
+  const minimumFrameStateVersionRef = useRef<number | null>(null);
   // Set when a scenario switch is in flight; frames are dropped until the
   // server's `scenario` event confirms the switch by matching this value.
   const pendingScenarioRef = useRef<string | null>(null);
@@ -117,6 +124,15 @@ export function useHeatmap(): HeatmapApi {
       if (!configRef.current) return;
       if (pendingScenarioRef.current !== null) return;
       const frame: Frame = JSON.parse(e.data as string);
+      const frameVersion = stateVersionNumber(frame.state_version);
+      const minimumFrameStateVersion = minimumFrameStateVersionRef.current;
+      if (
+        frameVersion !== null &&
+        minimumFrameStateVersion !== null &&
+        frameVersion < minimumFrameStateVersion
+      ) {
+        return;
+      }
       const nextGeojson = frameToGeoJSON(frame.cells, configRef.current);
       setGeojson(
         nextGeojson,
@@ -165,7 +181,30 @@ export function useHeatmap(): HeatmapApi {
       pendingScenarioId: id,
     }));
     try {
-      await postScenario(id, stops, lines);
+      const response = await postScenario(id, stops, lines);
+      if (response.frame && configRef.current) {
+        const frameVersion = stateVersionNumber(response.frame.state_version);
+        if (frameVersion !== null) {
+          minimumFrameStateVersionRef.current = Math.max(
+            minimumFrameStateVersionRef.current ?? frameVersion,
+            frameVersion,
+          );
+        }
+        const nextGeojson = frameToGeoJSON(response.frame.cells, configRef.current);
+        pendingScenarioRef.current = null;
+        setScenarioId(response.scenario_id);
+        setGeojson(nextGeojson);
+        setDiagnostics((current) => ({
+          ...current,
+          pendingScenarioId: null,
+          confirmedScenarioId: response.scenario_id,
+          frameCount: current.frameCount + 1,
+          lastFrameCellCount: response.frame?.cells.length ?? 0,
+          featureCount: nextGeojson.features.length,
+          lastFrameAt: Date.now(),
+          simTime: response.frame?.sim_time ?? current.simTime,
+        }));
+      }
     } catch (err) {
       pendingScenarioRef.current = null;
       setDiagnostics((current) => ({

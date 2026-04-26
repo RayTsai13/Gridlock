@@ -139,7 +139,10 @@ async def post_scenario(payload: dict[str, Any]):
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     await STATE.notify_change()
-    return {"scenario_id": STATE.scenario_id}
+    return {
+        "scenario_id": STATE.scenario_id,
+        "frame": STATE.compose_frame(),
+    }
 
 
 @app.get("/api/playback")

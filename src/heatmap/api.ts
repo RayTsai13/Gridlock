@@ -1,3 +1,5 @@
+import type { Frame } from './grid.ts';
+
 const BASE_URL = '/api';
 
 export type PlacedPerson = {
@@ -26,6 +28,11 @@ export type ScenarioLine = {
   path?: [longitude: number, latitude: number][];
 };
 
+export type ScenarioResponse = {
+  scenario_id: string;
+  frame?: Frame;
+};
+
 export type SimTime = {
   day_of_week: number;
   time_bin: number;
@@ -46,7 +53,7 @@ export async function postScenario(
   scenarioId: string,
   stops: ScenarioStop[] = [],
   lines: ScenarioLine[] = [],
-): Promise<void> {
+): Promise<ScenarioResponse> {
   const res = await fetch(`${BASE_URL}/scenario`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -55,6 +62,7 @@ export async function postScenario(
   if (!res.ok) {
     throw new Error(`POST /api/scenario failed: ${res.status}`);
   }
+  return res.json();
 }
 
 export async function postPeople(
