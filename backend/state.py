@@ -38,17 +38,26 @@ class State:
         self.scenario_id: str = DEFAULT_SCENARIO_ID
         self.people: dict[str, Person] = {}
         self._version: int = 0
-        self._cond = asyncio.Condition()
+        # Created lazily on first use so the condition binds to the running
+        # event loop — important on Python 3.9 where asyncio primitives latch
+        # onto the loop at construction time.
+        self._cond: asyncio.Condition | None = None
 
     @property
     def version(self) -> int:
         return self._version
 
+    def _ensure_cond(self) -> asyncio.Condition:
+        if self._cond is None:
+            self._cond = asyncio.Condition()
+        return self._cond
+
     async def notify_change(self) -> None:
         """Bump version + wake everyone waiting in :meth:`wait_for_change`."""
         self._version += 1
-        async with self._cond:
-            self._cond.notify_all()
+        cond = self._ensure_cond()
+        async with cond:
+            cond.notify_all()
 
     async def wait_for_change(self, last_version: int, timeout: float) -> int:
         """Block until ``version > last_version`` or ``timeout`` elapses.
@@ -56,10 +65,11 @@ class State:
         Returns the current version regardless of why we woke up, so the
         caller can pass it back on the next call.
         """
-        async with self._cond:
+        cond = self._ensure_cond()
+        async with cond:
             try:
                 await asyncio.wait_for(
-                    self._cond.wait_for(lambda: self._version > last_version),
+                    cond.wait_for(lambda: self._version > last_version),
                     timeout=timeout,
                 )
             except asyncio.TimeoutError:
