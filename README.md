@@ -1,4 +1,4 @@
-# Seattle Transit Sim
+# Gridlock
 
 Seattle-focused map prototype for building and eventually visualizing foot-traffic heatmaps.
 
