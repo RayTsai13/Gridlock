@@ -4,6 +4,7 @@ export const HEATMAP_LAYER_ID = "foot-traffic-heatmap";
 
 export const heatmapLayer: LayerProps = {
   id: HEATMAP_LAYER_ID,
+  beforeId: "transit-line-casing",
   type: "circle",
   layout: {
     "circle-sort-key": ["get", "density"],
